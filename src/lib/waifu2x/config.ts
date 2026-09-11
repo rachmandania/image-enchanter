@@ -117,5 +117,9 @@ export function getConfig(arch: string, style: Style, method: string): ModelConf
 }
 
 export function getHelperModelPath(name: string): string {
+  // pad models are not on the HF mirror — served locally from /public
+  if (name === 'replication_pad' || name === 'reflection_pad') {
+    return `/models/utils/${name}.onnx`
+  }
   return `${MODEL_CDN}/utils/${name}.onnx`
 }
