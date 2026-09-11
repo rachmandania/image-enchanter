@@ -1,27 +1,28 @@
 /**
- * waifu2x browser engine — public API.
- * Uses the same ONNX models as unlimited.waifu2x.net (nagadomi/nunif, MIT).
- * Everything runs client-side via onnxruntime-web. No uploads, no API keys.
+ * Image Enchanter — browser AI engine, public API.
+ * Runs entirely client-side via onnxruntime-web. No uploads, no API keys.
  */
 import * as ort from 'onnxruntime-web'
 import { getConfig, type Style } from './config'
 import { onnxSession } from './session'
-import { waifu2xRunner } from './runner'
+import { runner } from './runner'
+import { modelCache } from './modelCache'
 
 export { STYLES, NOISE_LEVELS } from './config'
 export type { Style } from './config'
 
-export interface Waifu2xOptions {
+export interface EnchantOptions {
   imageData: ImageData
   style: Style
   denoise: number // -1 = scale only, 0..3
   scale: 1 | 2 | 4
   tileSize?: number
   onProgress?: (done: number, total: number) => void
+  onModelLoad?: (label: string) => void
   shouldCancel?: () => boolean
 }
 
-export interface Waifu2xResult {
+export interface EnchantResult {
   canvas: HTMLCanvasElement
   cancelled: boolean
   modelUsed: string
@@ -35,8 +36,8 @@ try {
   // non-browser env during SSR
 }
 
-export async function upscale(opts: Waifu2xOptions): Promise<Waifu2xResult> {
-  const { imageData, style, denoise, scale, tileSize = 256, onProgress, shouldCancel } = opts
+export async function enchant(opts: EnchantOptions): Promise<EnchantResult> {
+  const { imageData, style, denoise, scale, tileSize = 256, onProgress, onModelLoad, shouldCancel } = opts
 
   const method =
     scale === 1
@@ -46,14 +47,20 @@ export async function upscale(opts: Waifu2xOptions): Promise<Waifu2xResult> {
         : `noise${denoise}_scale${scale}x`
 
   const config = getConfig('swin_unet', style, method)
-  if (!config) throw new Error(`Model not found: swin_unet.${style}.${method}`)
+  if (!config) throw new Error(`Model not found: ${style}/${method}`)
 
   // alpha path uses the plain scale model for the alpha channel
   const alphaMethod = scale === 4 ? 'scale4x' : scale === 2 ? 'scale2x' : 'scale1x'
   const hasAlpha = checkAlphaChannel(imageData.data)
   const alphaConfig = hasAlpha ? getConfig('swin_unet', style, alphaMethod) : null
 
-  const result = await waifu2xRunner.tiledRender({
+  // Warm the model cache first so the UI can show download progress
+  onModelLoad?.('Downloading AI model (first run only)…')
+  await modelCache.prefetch(config.path, (loaded, total) => {
+    onModelLoad?.(`Downloading AI model… ${(loaded / 1048576).toFixed(1)} / ${(total / 1048576).toFixed(1)} MB`)
+  })
+
+  const result = await runner.tiledRender({
     imageData,
     config,
     alphaConfig: alphaConfig ?? null,
@@ -65,7 +72,7 @@ export async function upscale(opts: Waifu2xOptions): Promise<Waifu2xResult> {
   return {
     canvas: result.canvas,
     cancelled: result.cancelled,
-    modelUsed: `swin_unet/${style}/${method}`,
+    modelUsed: `${style}/${method}`,
   }
 }
 
@@ -78,6 +85,7 @@ export function checkAlphaChannel(rgba: Uint8ClampedArray): boolean {
 
 export function clearModelCache(): void {
   onnxSession.clear()
+  modelCache.clear()
 }
 
 export function setBackend(backend: 'auto' | 'wasm' | 'webgpu'): void {

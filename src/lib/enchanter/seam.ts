@@ -1,10 +1,9 @@
 /**
  * Cumulative Tile Seam/Border Blending.
- * Ported from nagadomi/nunif unlimited_waifu2x (seam_blending.js), MIT License.
- * Original: nunif/utils/seam_blending.py
+ * Derived from the MIT-licensed nunif implementation (attribution in README).
  *
  * Overlapping tiles are weighted-blended into one output buffer so there are
- * no visible seams between tiles (this is what makes waifu2x output clean).
+ * no visible seams between tiles.
  */
 import * as ort from 'onnxruntime-web'
 import { getHelperModelPath } from './config'

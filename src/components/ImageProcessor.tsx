@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { upscale, STYLES, type Style } from '@/lib/waifu2x'
+import { enchant, STYLES, type Style } from '@/lib/enchanter'
 import PixelPeep from './PixelPeep'
 
 type Factor = 2 | 4
@@ -60,8 +60,8 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
       ctx.drawImage(img, 0, 0)
       const imageData = ctx.getImageData(0, 0, w, h)
 
-      setProgressLabel('Loading waifu2x model (first run downloads ~19 MB)…')
-      const result = await upscale({
+      setProgressLabel('Preparing AI model…')
+      const result = await enchant({
         imageData,
         style,
         denoise,
@@ -69,6 +69,10 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
         onProgress: (done, total) => {
           setProgress(Math.round((done / total) * 100))
           setProgressLabel(`Rendering tile ${done}/${total}`)
+        },
+        onModelLoad: (label) => {
+          setProgressLabel(label)
+          setProgress(0)
         },
         shouldCancel: () => cancelRef.current,
       })
@@ -106,7 +110,7 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
     if (!resultUrl) return
     const link = document.createElement('a')
     link.href = resultUrl
-    link.download = `enchanter_${style}_${factor}x.png`
+    link.download = `image_enchanter_${style}_${factor}x.png`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -223,7 +227,7 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
             />
           </div>
           <p className="text-dark-400 text-xs mt-3 text-center">
-            Real waifu2x engine — same models as unlimited.waifu2x.net. Large images take a while; the tab must stay open.
+            AI runs entirely on your device. First run downloads the model once; later runs load instantly. Keep this tab open while it works.
           </p>
         </div>
       )}
@@ -265,7 +269,7 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
             <PixelPeep src={resultUrl} zoom={zoom * factor} label={`Enhanced ${factor}x`} />
           </div>
           <p className="text-center text-dark-400 text-sm mb-6">
-            Both crops show the same region — drag to explore. Enhanced side shows real waifu2x detail.
+            Both crops show the same region — drag to explore. The enhanced side resolves sharper lines at the same zoom.
           </p>
 
           {/* Full result */}

@@ -1,6 +1,6 @@
 /**
- * Tiled ONNX inference for waifu2x.
- * Ported from nagadomi/nunif unlimited_waifu2x (runner.js), MIT License.
+ * Tiled ONNX inference engine for Image Enchanter.
+ * Derived from the MIT-licensed nunif tiled-rendering approach.
  */
 import * as ort from 'onnxruntime-web'
 import { getConfig, getHelperModelPath, type ModelConfig } from './config'
@@ -21,7 +21,7 @@ export interface TiledRenderResult {
   cancelled: boolean
 }
 
-export const waifu2xRunner = {
+export const runner = {
   async tiledRender(opts: TiledRenderOptions): Promise<TiledRenderResult> {
     const { imageData, config, alphaConfig, tileSize, onProgress, shouldCancel } = opts
 

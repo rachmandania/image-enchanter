@@ -1,8 +1,9 @@
 /**
- * Session cache + image codecs for the waifu2x browser engine.
- * Ported from nagadomi/nunif unlimited_waifu2x (utils.js), MIT License.
+ * Session cache + image codecs for the Image Enchanter engine.
+ * ONNX models load through the persistent browser cache (download once, use forever).
  */
 import * as ort from 'onnxruntime-web'
+import { modelCache } from './modelCache'
 
 export const onnxSession = {
   sessions: {} as Record<string, ort.InferenceSession>,
@@ -20,12 +21,16 @@ export const onnxSession = {
         ep = ['webgpu', 'wasm']
       }
       try {
-        this.sessions[onnxPath] = await ort.InferenceSession.create(onnxPath, {
+        // Route through the persistent cache: first run downloads (with UI progress
+        // handled by the caller via prefetch), later runs load from local storage.
+        const blobUrl = await modelCache.resolve(onnxPath)
+        this.sessions[onnxPath] = await ort.InferenceSession.create(blobUrl, {
           logSeverityLevel: 3,
           executionProviders: ep,
         })
+        URL.revokeObjectURL(blobUrl)
       } catch (error) {
-        console.error('[waifu2x] failed to create session for', onnxPath, error)
+        console.error('[enchanter] failed to create session for', onnxPath, error)
         return null
       }
     }

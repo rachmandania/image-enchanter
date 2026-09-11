@@ -1,9 +1,8 @@
 /**
- * waifu2x ONNX model configuration.
- * Ported from nagadomi/nunif unlimited_waifu2x (models.js), MIT License.
- *
- * Models are served from Hugging Face (deepghs/waifu2x_onnx) with CORS enabled,
- * so no API keys or server-side processing are needed.
+ * Image Enchanter — ONNX model configuration.
+ * Engine derived from the MIT-licensed nunif project (see LICENSE note in README).
+ * Models are served from a public CDN with CORS enabled, plus local helpers in /public.
+ * No API keys, no server-side processing.
  */
 
 export const MODEL_CDN = 'https://huggingface.co/deepghs/waifu2x_onnx/resolve/main/20230504/onnx_models'
