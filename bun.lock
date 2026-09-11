@@ -6,6 +6,8 @@
       "name": "image-enchanter",
       "dependencies": {
         "@tensorflow/tfjs": "^4.17.0",
+        "@upscalerjs/esrgan-medium": "^1.0.0",
+        "@upscalerjs/esrgan-slim": "^1.0.0",
         "@upscalerjs/esrgan-thick": "^1.0.0-beta.30",
         "next": "^14.2.0",
         "react": "^18.2.0",
@@ -95,6 +97,10 @@
     "@types/seedrandom": ["@types/seedrandom@2.4.34", "", {}, "sha512-ytDiArvrn/3Xk6/vtylys5tlY6eo7Ane0hvcx++TKo6RxQXuVfW0AF/oeWqAj9dN29SyhtawuXstgmPlwNcv/A=="],
 
     "@upscalerjs/default-model": ["@upscalerjs/default-model@1.0.0", "", { "peerDependencies": { "@tensorflow/tfjs": "~4.11.0" } }, "sha512-D17cokQBpciTBrlFuY5WtS7TH0WE3h5m44PYiPPCSq1jlWjG9BvH5/rnm9AhQPV6TT3Bqbg5GAPV8/qpR47/hQ=="],
+
+    "@upscalerjs/esrgan-medium": ["@upscalerjs/esrgan-medium@1.0.0", "", { "peerDependencies": { "@tensorflow/tfjs": "~4.11.0" } }, "sha512-Z8JnR87sgetPABKevasXST3FdnXhaoTu9zpXnu3KLaHYpYStVt0FD1VZS9c6jhSGMBC0H929gN9RbWl+MeisKA=="],
+
+    "@upscalerjs/esrgan-slim": ["@upscalerjs/esrgan-slim@1.0.0", "", { "peerDependencies": { "@tensorflow/tfjs": "~4.11.0" } }, "sha512-DXtwn5SE71+pZKluN/hGeLaZv6ZylyFQYSvMqU08kKCEA5Y9Q1cIIk4EvPTPZw8VqGi2C6F02c8OjhtId4BK2w=="],
 
     "@upscalerjs/esrgan-thick": ["@upscalerjs/esrgan-thick@1.0.0", "", { "peerDependencies": { "@tensorflow/tfjs": "~4.11.0" } }, "sha512-Xt7LAEa1WYVdU8teye1A2J3T2ylb3ihlU/x01x1ieM7zZh5FzTll6fwmeUC82mkztWloGZM65KdSEWOmhlXOdw=="],
 
