@@ -1,148 +1,112 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useRef } from 'react'
+import { upscale, STYLES, type Style } from '@/lib/waifu2x'
+import PixelPeep from './PixelPeep'
 
-export type Quality = 'fast' | 'balanced' | 'best'
-export type Factor = 2 | 4
+type Factor = 2 | 4
+type Status = 'idle' | 'working' | 'done' | 'error'
+
+const NOISE_OPTIONS = [
+  { value: -1, label: 'None' },
+  { value: 0, label: '0 — clean source' },
+  { value: 1, label: '1 — low' },
+  { value: 2, label: '2 — medium' },
+  { value: 3, label: '3 — high (JPEG artifacts)' },
+]
 
 interface ImageProcessorProps {
   originalImage: string
   onReset: () => void
 }
 
-const MAX_DIMENSION = 1200 // cap input size so WASM/WebGL inference stays reasonable
-const MODEL_INFO: Record<Quality, { label: string; desc: string }> = {
-  fast: { label: 'Fast', desc: 'Slim model — quickest, lighter detail' },
-  balanced: { label: 'Balanced', desc: 'Medium model — good speed/quality' },
-  best: { label: 'Best', desc: 'Thick model — richest detail, slowest' },
-}
-
-// Static-string dynamic imports so the bundler can code-split each model cleanly
-async function loadModel(quality: Quality) {
-  switch (quality) {
-    case 'fast':
-      return (await import('@upscalerjs/esrgan-slim/2x')).default
-    case 'best':
-      return (await import('@upscalerjs/esrgan-thick/2x')).default
-    case 'balanced':
-    default:
-      return (await import('@upscalerjs/esrgan-medium/2x')).default
-  }
-}
-
 export default function ImageProcessor({ originalImage, onReset }: ImageProcessorProps) {
-  const [quality, setQuality] = useState<Quality>('balanced')
+  const [style, setStyle] = useState<Style>('art')
+  const [denoise, setDenoise] = useState(-1)
   const [factor, setFactor] = useState<Factor>(2)
-  const [status, setStatus] = useState<'idle' | 'working' | 'done' | 'error'>('idle')
+  const [status, setStatus] = useState<Status>('idle')
   const [progress, setProgress] = useState(0)
   const [progressLabel, setProgressLabel] = useState('')
-  const [resultImage, setResultImage] = useState<string | null>(null)
+  const [resultUrl, setResultUrl] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState('')
-  const [compare, setCompare] = useState(50) // slider position %
-  const [elapsed, setElapsed] = useState(0)
+  const [zoom, setZoom] = useState(2)
+  const [inputDims, setInputDims] = useState<{ w: number; h: number } | null>(null)
+  const [modelUsed, setModelUsed] = useState('')
   const cancelRef = useRef(false)
-  const upscalerRef = useRef<{ dispose: () => void } | null>(null)
+  const resultUrlRef = useRef<string | null>(null)
 
-  // Cap very large inputs before inference
-  const prepareImage = useCallback(async (src: string): Promise<string> => {
-    const img = new Image()
-    img.src = src
-    await img.decode()
-    const { naturalWidth: w, naturalHeight: h } = img
-    if (Math.max(w, h) <= MAX_DIMENSION) return src
-
-    const scale = MAX_DIMENSION / Math.max(w, h)
-    const canvas = document.createElement('canvas')
-    canvas.width = Math.round(w * scale)
-    canvas.height = Math.round(h * scale)
-    canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height)
-    return canvas.toDataURL('image/png')
-  }, [])
-
-  const runUpscale = useCallback(async () => {
+  const runUpscale = async () => {
     if (status === 'working') return
     cancelRef.current = false
     setStatus('working')
     setProgress(0)
-    setProgressLabel('Preparing image…')
-    setResultImage(null)
+    setProgressLabel('Decoding image…')
+    setResultUrl(null)
     setErrorMessage('')
 
-    const start = Date.now()
-    const ticker = setInterval(() => setElapsed(Math.round((Date.now() - start) / 1000)), 500)
-
     try {
-      const prepared = await prepareImage(originalImage)
+      // Decode to ImageData at native resolution
+      const img = new Image()
+      img.src = originalImage
+      await img.decode()
+      const w = img.naturalWidth
+      const h = img.naturalHeight
+      setInputDims({ w, h })
 
-      // Lazy-load the heavy AI stack only when the user actually runs it
-      setProgressLabel('Loading AI model…')
-      const [{ default: Upscaler }, model] = await Promise.all([
-        import('upscaler'),
-        loadModel(quality),
-      ])
+      const canvas = document.createElement('canvas')
+      canvas.width = w
+      canvas.height = h
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })!
+      ctx.drawImage(img, 0, 0)
+      const imageData = ctx.getImageData(0, 0, w, h)
 
-      // Route 4x through two sequential 2x passes (models are 2x scale)
-      let current: string = prepared
-      const passes = factor === 4 ? 2 : 1
+      setProgressLabel('Loading waifu2x model (first run downloads ~19 MB)…')
+      const result = await upscale({
+        imageData,
+        style,
+        denoise,
+        scale: factor,
+        onProgress: (done, total) => {
+          setProgress(Math.round((done / total) * 100))
+          setProgressLabel(`Rendering tile ${done}/${total}`)
+        },
+        shouldCancel: () => cancelRef.current,
+      })
 
-      const upscaler = new Upscaler({ model })
-      upscalerRef.current = upscaler
-
-      for (let pass = 0; pass < passes; pass++) {
-        if (cancelRef.current) throw new Error('cancelled')
-        const base = pass / passes
-        const slice = 100 / passes
-
-        const out = await upscaler.upscale(current, {
-          patchSize: 64,
-          padding: 2,
-          progress: (amount: number) => {
-            const pct = Math.round((base + amount * slice) * 100)
-            setProgress(Math.min(pct, 99))
-            setProgressLabel(`Pass ${pass + 1}/${passes} — ${(amount * 100).toFixed(0)}%`)
-          },
-          awaitNextFrame: true,
-        } as never)
-
-        if (pass < passes - 1) {
-          current = out as unknown as string
-        } else {
-          setResultImage(out as unknown as string)
-        }
+      if (result.cancelled) {
+        setStatus('idle')
+        return
       }
 
-      // Free GPU memory once all passes are finished
-      upscaler.dispose()
-      upscalerRef.current = null
-
+      // Canvas -> blob URL
+      const blob: Blob = await new Promise((resolve, reject) =>
+        result.canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/png'),
+      )
+      if (resultUrlRef.current) URL.revokeObjectURL(resultUrlRef.current)
+      const url = URL.createObjectURL(blob)
+      resultUrlRef.current = url
+      setResultUrl(url)
+      setModelUsed(result.modelUsed)
       setProgress(100)
       setStatus('done')
     } catch (err) {
-      if ((err as Error)?.message === 'cancelled' || cancelRef.current) {
-        setStatus('idle')
-      } else {
-        console.error(err)
-        setErrorMessage(
-          'Upscaling failed. Try a smaller image, or the "Fast" quality. Very large images can exhaust browser memory.'
-        )
-        setStatus('error')
-      }
-    } finally {
-      clearInterval(ticker)
+      console.error(err)
+      setErrorMessage(
+        `Upscaling failed: ${(err as Error).message}. Try the "Photo" style for photos, or a smaller image — browser memory is limited.`,
+      )
+      setStatus('error')
     }
-  }, [status, quality, factor, originalImage, prepareImage])
+  }
 
   const cancel = () => {
     cancelRef.current = true
-    upscalerRef.current?.dispose()
-    upscalerRef.current = null
   }
 
   const handleDownload = () => {
-    if (!resultImage) return
+    if (!resultUrl) return
     const link = document.createElement('a')
-    link.href = resultImage
-    link.download = `enchanter-${factor}x-${Date.now()}.png`
+    link.href = resultUrl
+    link.download = `enchanter_${style}_${factor}x.png`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -153,25 +117,25 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
   return (
     <div className="max-w-5xl mx-auto">
       {/* Controls */}
-      <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-8">
-        {/* Quality selector */}
+      <div className="flex flex-wrap items-center justify-center gap-3 mb-6">
+        {/* Style */}
         <div className="flex items-center gap-1 bg-dark-800/50 rounded-lg p-1">
-          {(Object.keys(MODEL_INFO) as Quality[]).map((q) => (
+          {STYLES.map((s) => (
             <button
-              key={q}
+              key={s.value}
               disabled={busy}
-              onClick={() => setQuality(q)}
-              title={MODEL_INFO[q].desc}
+              onClick={() => setStyle(s.value)}
+              title={s.desc}
               className={`px-3 py-2 rounded-md text-sm font-medium transition-colors disabled:opacity-50 ${
-                quality === q ? 'bg-primary-500 text-white' : 'text-dark-300 hover:text-white'
+                style === s.value ? 'bg-primary-500 text-white' : 'text-dark-300 hover:text-white'
               }`}
             >
-              {MODEL_INFO[q].label}
+              {s.label}
             </button>
           ))}
         </div>
 
-        {/* Factor selector */}
+        {/* Scale */}
         <div className="flex items-center gap-1 bg-dark-800/50 rounded-lg p-1">
           {([2, 4] as Factor[]).map((f) => (
             <button
@@ -182,15 +146,30 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
                 factor === f ? 'bg-primary-500 text-white' : 'text-dark-300 hover:text-white'
               }`}
             >
-              {f}x Upscale
+              {f}x
             </button>
           ))}
         </div>
+
+        {/* Denoise */}
+        <select
+          disabled={busy}
+          value={denoise}
+          onChange={(e) => setDenoise(Number(e.target.value))}
+          className="bg-dark-800/50 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white disabled:opacity-50"
+        >
+          <option value={-1}>No denoise</option>
+          {NOISE_OPTIONS.slice(1).map((n) => (
+            <option key={n.value} value={n.value}>
+              Denoise {n.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Actions */}
       <div className="flex flex-wrap items-center justify-center gap-3 mb-8">
-        {status === 'idle' && (
+        {status !== 'working' && (
           <button
             onClick={runUpscale}
             className="px-6 py-3 bg-primary-500 hover:bg-primary-600 text-white font-semibold rounded-lg transition-colors"
@@ -198,7 +177,6 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
             ✨ Enhance Image
           </button>
         )}
-
         {busy && (
           <button
             onClick={cancel}
@@ -207,20 +185,13 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
             Cancel
           </button>
         )}
-
         {status === 'done' && (
           <>
-            <button
-              onClick={runUpscale}
-              className="px-6 py-3 bg-primary-500 hover:bg-primary-600 text-white font-semibold rounded-lg transition-colors"
-            >
-              Re-run
-            </button>
             <button
               onClick={handleDownload}
               className="px-6 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold rounded-lg transition-colors"
             >
-              ⬇ Download Result
+              ⬇ Download PNG
             </button>
             <button
               onClick={onReset}
@@ -230,18 +201,9 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
             </button>
           </>
         )}
-
-        {status === 'error' && (
-          <button
-            onClick={runUpscale}
-            className="px-6 py-3 bg-primary-500 hover:bg-primary-600 text-white font-semibold rounded-lg transition-colors"
-          >
-            Try Again
-          </button>
-        )}
       </div>
 
-      {/* Progress / status */}
+      {/* Progress */}
       {busy && (
         <div className="mb-8 max-w-md mx-auto bg-dark-800/50 rounded-lg p-6">
           <div className="flex items-center justify-between mb-3">
@@ -250,18 +212,18 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
-              <span className="text-white font-medium">{progressLabel || 'Working…'}</span>
+              <span className="text-white font-medium">{progressLabel}</span>
             </div>
-            <span className="text-dark-300 text-sm tabular-nums">{elapsed}s</span>
+            <span className="text-dark-300 text-sm tabular-nums">{progress}%</span>
           </div>
           <div className="w-full bg-dark-700 rounded-full h-2">
             <div
-              className="bg-primary-500 h-2 rounded-full transition-all duration-300"
+              className="bg-primary-500 h-2 rounded-full transition-all duration-200"
               style={{ width: `${progress}%` }}
             />
           </div>
           <p className="text-dark-400 text-xs mt-3 text-center">
-            AI runs on your device. Keep this tab in the foreground for best speed.
+            Real waifu2x engine — same models as unlimited.waifu2x.net. Large images take a while; the tab must stay open.
           </p>
         </div>
       )}
@@ -272,54 +234,56 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
         </div>
       )}
 
-      {/* Result: before/after slider */}
-      {status === 'done' && resultImage && (
+      {/* Result */}
+      {status === 'done' && resultUrl && (
         <div className="mb-8">
-          <div className="relative w-full max-w-3xl mx-auto aspect-square bg-dark-900 rounded-xl overflow-hidden select-none">
-            {/* Upscaled fills the box; original overlays clipped to slider */}
-            <img src={resultImage} alt="Enhanced" className="absolute inset-0 w-full h-full object-contain" />
-            <div className="absolute inset-0 overflow-hidden" style={{ width: `${compare}%` }}>
-              <img
-                src={originalImage}
-                alt="Original"
-                className="absolute inset-0 w-full h-full object-contain"
-                style={{ width: '100%' }}
-              />
-            </div>
-            {/* Divider handle */}
-            <div
-              className="absolute top-0 bottom-0 w-0.5 bg-white/80 cursor-ew-resize"
-              style={{ left: `${compare}%` }}
-            >
-              <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-8 h-8 rounded-full bg-white shadow-lg flex items-center justify-center">
-                <span className="text-dark-900 text-xs font-bold">⇄</span>
-              </div>
-            </div>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={compare}
-              onChange={(e) => setCompare(Number(e.target.value))}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize"
-              aria-label="Compare original and enhanced"
-            />
-            <span className="absolute top-2 left-2 text-xs bg-black/50 text-white px-2 py-1 rounded">Original</span>
-            <span className="absolute top-2 right-2 text-xs bg-black/50 text-white px-2 py-1 rounded">Enhanced {factor}x</span>
+          <div className="flex items-center justify-center gap-2 mb-4">
+            <span className="text-dark-400 text-sm">Compare zoom:</span>
+            {[1, 2, 4].map((z) => (
+              <button
+                key={z}
+                onClick={() => setZoom(z)}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  zoom === z ? 'bg-primary-500 text-white' : 'bg-dark-800/50 text-dark-300 hover:text-white'
+                }`}
+              >
+                {z}x
+              </button>
+            ))}
           </div>
-          <p className="text-center text-dark-400 text-sm mt-3">
-            Drag the slider to compare • Enhanced is {factor}x the resolution
+
+          {inputDims && (
+            <p className="text-center text-dark-300 text-sm mb-4 font-medium">
+              {inputDims.w}×{inputDims.h} → {inputDims.w * factor}×{inputDims.h * factor} pixels
+              <span className="text-dark-500 font-normal"> · model: {modelUsed}</span>
+            </p>
+          )}
+
+          {/* Pixel-peep comparison */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-3xl mx-auto mb-4">
+            <PixelPeep src={originalImage} zoom={zoom} label="Original" />
+            <PixelPeep src={resultUrl} zoom={zoom * factor} label={`Enhanced ${factor}x`} />
+          </div>
+          <p className="text-center text-dark-400 text-sm mb-6">
+            Both crops show the same region — drag to explore. Enhanced side shows real waifu2x detail.
           </p>
+
+          {/* Full result */}
+          <h3 className="text-white font-medium mb-2 text-center">Full Enhanced Result</h3>
+          <div className="max-w-4xl mx-auto rounded-xl overflow-hidden bg-dark-900 border border-dark-700">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={resultUrl} alt="Enhanced result" className="w-full h-auto" />
+          </div>
         </div>
       )}
 
-      {/* Original preview while idle/working */}
+      {/* Original preview while working */}
       {status !== 'done' && (
         <div className="bg-dark-800/50 rounded-2xl p-4 max-w-2xl mx-auto">
           <h3 className="text-white font-medium mb-3 text-center">Original Image</h3>
-          <div className="relative aspect-square overflow-hidden rounded-xl bg-dark-900">
+          <div className="relative max-h-[60vh] overflow-hidden rounded-xl bg-dark-900 flex items-center justify-center">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={originalImage} alt="Original" className="w-full h-full object-contain" />
+            <img src={originalImage} alt="Original" className="max-w-full max-h-[60vh] object-contain" />
           </div>
         </div>
       )}
