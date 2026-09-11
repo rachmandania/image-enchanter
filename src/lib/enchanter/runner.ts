@@ -122,6 +122,9 @@ export const runner = {
         ? this.checkSingleColor(tileX, tileAlpha3)
         : null
 
+      // Yield to the browser between tiles so scrolling/painting stays smooth
+      await new Promise((r) => requestAnimationFrame(() => r(null)))
+
       let tileY: ort.Tensor
       let tileAlphaY: ort.Tensor | null = null
 

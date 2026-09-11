@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { enchant, STYLES, type Style } from '@/lib/enchanter'
 import PixelPeep from './PixelPeep'
 
@@ -34,6 +34,42 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
   const [modelUsed, setModelUsed] = useState('')
   const cancelRef = useRef(false)
   const resultUrlRef = useRef<string | null>(null)
+  // Progress updates are buffered in a ref and flushed to state at most
+  // every 250ms — per-tile setState on a large image re-renders the whole
+  // page thousands of times and makes scrolling janky.
+  const progressBuf = useRef({ done: 0, total: 0 })
+  const lastFlush = useRef(0)
+  const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const flushProgress = useCallback(() => {
+    lastFlush.current = Date.now()
+    const { done, total } = progressBuf.current
+    if (total > 0) {
+      setProgress(Math.round((done / total) * 100))
+      setProgressLabel(`Rendering tile ${done}/${total}`)
+    }
+  }, [])
+
+  const onTileProgress = useCallback(
+    (done: number, total: number) => {
+      progressBuf.current = { done, total }
+      const since = Date.now() - lastFlush.current
+      if (since >= 250) {
+        flushProgress()
+      } else if (!flushTimer.current) {
+        flushTimer.current = setTimeout(() => {
+          flushTimer.current = null
+          flushProgress()
+        }, 250 - since)
+      }
+    },
+    [flushProgress],
+  )
+
+  const onModelLoad = useCallback((label: string) => {
+    setProgressLabel(label)
+    setProgress(0)
+  }, [])
 
   const runUpscale = async () => {
     if (status === 'working') return
@@ -66,14 +102,8 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
         style,
         denoise,
         scale: factor,
-        onProgress: (done, total) => {
-          setProgress(Math.round((done / total) * 100))
-          setProgressLabel(`Rendering tile ${done}/${total}`)
-        },
-        onModelLoad: (label) => {
-          setProgressLabel(label)
-          setProgress(0)
-        },
+        onProgress: onTileProgress,
+        onModelLoad,
         shouldCancel: () => cancelRef.current,
       })
 
@@ -276,7 +306,7 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
           <h3 className="text-white font-medium mb-2 text-center">Full Enhanced Result</h3>
           <div className="max-w-4xl mx-auto rounded-xl overflow-hidden bg-dark-900 border border-dark-700">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={resultUrl} alt="Enhanced result" className="w-full h-auto" />
+            <img src={resultUrl} alt="Enhanced result" className="w-full h-auto" decoding="async" loading="lazy" />
           </div>
         </div>
       )}
@@ -287,7 +317,7 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
           <h3 className="text-white font-medium mb-3 text-center">Original Image</h3>
           <div className="relative max-h-[60vh] overflow-hidden rounded-xl bg-dark-900 flex items-center justify-center">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={originalImage} alt="Original" className="max-w-full max-h-[60vh] object-contain" />
+            <img src={originalImage} alt="Original" className="max-w-full max-h-[60vh] object-contain" decoding="async" />
           </div>
         </div>
       )}
