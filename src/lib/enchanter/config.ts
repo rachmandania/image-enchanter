@@ -50,6 +50,14 @@ export const STYLES: { value: Style; label: string; desc: string }[] = [
   { value: 'photo', label: 'Photo', desc: 'Photographs and realistic images' },
 ]
 
+export const TILE_SIZES = [64, 256, 400, 640] as const
+
+export const TTA_LEVELS: { value: 0 | 2 | 4; label: string; desc: string }[] = [
+  { value: 0, label: 'Off', desc: 'Fastest' },
+  { value: 2, label: '2', desc: '2 inference passes (flips) — ~2x slower, usually sharper' },
+  { value: 4, label: '4', desc: '4 inference passes (flips + transposes) — ~4x slower, best quality' },
+]
+
 export const NOISE_LEVELS: { value: number; label: string }[] = [
   { value: -1, label: 'None' },
   { value: 0, label: 'None (0)' },

@@ -12,6 +12,8 @@ export interface TiledRenderOptions {
   config: ModelConfig
   alphaConfig: ModelConfig | null
   tileSize: number
+  ttaLevel?: 0 | 2 | 4
+  tileShuffle?: boolean
   onProgress?: (done: number, total: number) => void
   shouldCancel?: () => boolean
 }
@@ -24,6 +26,8 @@ export interface TiledRenderResult {
 export const runner = {
   async tiledRender(opts: TiledRenderOptions): Promise<TiledRenderResult> {
     const { imageData, config, alphaConfig, tileSize, onProgress, shouldCancel } = opts
+    const ttaLevel: 0 | 2 | 4 = opts.ttaLevel ?? 0
+    const tileShuffle: boolean = opts.tileShuffle ?? false
 
     const hasAlpha = alphaConfig !== null
     const model = await onnxSession.getSession(config.path)
@@ -104,6 +108,14 @@ export const runner = {
       }
     }
 
+    // Randomize tile order: spreads heat + memory pressure evenly (same as the reference engine)
+    if (tileShuffle) {
+      for (let i = tiles.length - 1; i > 0; --i) {
+        const j = Math.floor(Math.random() * (i + 1))
+        ;[tiles[i], tiles[j]] = [tiles[j], tiles[i]]
+      }
+    }
+
     onProgress?.(0, allBlocks)
 
     let progress = 0
@@ -129,8 +141,15 @@ export const runner = {
       let tileAlphaY: ort.Tensor | null = null
 
       if (singleColor === null) {
-        const rgbOut = await model.run({ x: tileX })
+        let inputTile = tileX
+        if (ttaLevel > 0) {
+          inputTile = await this.ttaSplit(inputTile, ttaLevel)
+        }
+        const rgbOut = await model.run({ x: inputTile })
         tileY = rgbOut.y
+        if (ttaLevel > 0) {
+          tileY = await this.ttaMerge(tileY, ttaLevel)
+        }
         if (hasAlpha && alphaModel && tileAlpha3) {
           const alphaOut = await alphaModel.run({ x: tileAlpha3 })
           tileAlphaY = alphaOut.y
@@ -276,6 +295,28 @@ export const runner = {
       new ort.Tensor('float32', rgb, [1, 3, size, size]),
       new ort.Tensor('float32', alpha3, [1, 3, size, size]),
     ]
+  },
+
+  async ttaSplit(x: ort.Tensor, ttaLevel: 0 | 2 | 4): Promise<ort.Tensor> {
+    const ses = await onnxSession.getSession(getHelperModelPath('tta_split'))
+    if (!ses) throw new Error('Failed to load tta_split model')
+    const feeds: Record<string, ort.Tensor> = {
+      x,
+      tta_level: new ort.Tensor('int64', BigInt64Array.from([BigInt(ttaLevel)]), []),
+    }
+    const out = await ses.run(feeds)
+    return out.y
+  },
+
+  async ttaMerge(x: ort.Tensor, ttaLevel: 0 | 2 | 4): Promise<ort.Tensor> {
+    const ses = await onnxSession.getSession(getHelperModelPath('tta_merge'))
+    if (!ses) throw new Error('Failed to load tta_merge model')
+    const feeds: Record<string, ort.Tensor> = {
+      x,
+      tta_level: new ort.Tensor('int64', BigInt64Array.from([BigInt(ttaLevel)]), []),
+    }
+    const out = await ses.run(feeds)
+    return out.y
   },
 
   async padding(

@@ -8,7 +8,7 @@ import { onnxSession } from './session'
 import { runner } from './runner'
 import { modelCache } from './modelCache'
 
-export { STYLES, NOISE_LEVELS } from './config'
+export { STYLES, NOISE_LEVELS, TILE_SIZES, TTA_LEVELS } from './config'
 export type { Style } from './config'
 
 export interface EnchantOptions {
@@ -16,9 +16,11 @@ export interface EnchantOptions {
   style: Style
   denoise: number // -1 = scale only, 0..3
   scale: 1 | 2 | 4
-  tileSize?: number
+  tileSize?: number // request; engine snaps it to a valid size for the arch
+  ttaLevel?: 0 | 2 | 4
+  tileShuffle?: boolean
   onProgress?: (done: number, total: number) => void
-  onModelLoad?: (label: string) => void
+  onModelLoad?: (label: string, loaded: number, total: number) => void
   shouldCancel?: () => boolean
 }
 
@@ -30,6 +32,9 @@ export interface EnchantResult {
 
 // Ensure onnxruntime finds its wasm files (copied to /public/ort)
 ort.env.wasm.wasmPaths = '/ort/'
+// Run inference in onnxruntime's proxy worker so the main thread stays free
+// (scrolling, animations, React re-renders) — the fix for browser jank warnings.
+ort.env.wasm.proxy = true
 try {
   ort.env.wasm.numThreads = Math.min(navigator.hardwareConcurrency || 4, 8)
 } catch {
@@ -37,7 +42,18 @@ try {
 }
 
 export async function enchant(opts: EnchantOptions): Promise<EnchantResult> {
-  const { imageData, style, denoise, scale, tileSize = 256, onProgress, onModelLoad, shouldCancel } = opts
+  const {
+    imageData,
+    style,
+    denoise,
+    scale,
+    tileSize = 256,
+    ttaLevel = 0,
+    tileShuffle = false,
+    onProgress,
+    onModelLoad,
+    shouldCancel,
+  } = opts
 
   const method =
     scale === 1
@@ -55,9 +71,9 @@ export async function enchant(opts: EnchantOptions): Promise<EnchantResult> {
   const alphaConfig = hasAlpha ? getConfig('swin_unet', style, alphaMethod) : null
 
   // Warm the model cache first so the UI can show download progress
-  onModelLoad?.('Downloading AI model (first run only)…')
+  onModelLoad?.('Downloading AI model…', 0, 0)
   await modelCache.prefetch(config.path, (loaded, total) => {
-    onModelLoad?.(`Downloading AI model… ${(loaded / 1048576).toFixed(1)} / ${(total / 1048576).toFixed(1)} MB`)
+    onModelLoad?.('Downloading AI model…', loaded, total)
   })
 
   const result = await runner.tiledRender({
@@ -65,6 +81,8 @@ export async function enchant(opts: EnchantOptions): Promise<EnchantResult> {
     config,
     alphaConfig: alphaConfig ?? null,
     tileSize,
+    ttaLevel,
+    tileShuffle,
     onProgress,
     shouldCancel,
   })
@@ -72,7 +90,7 @@ export async function enchant(opts: EnchantOptions): Promise<EnchantResult> {
   return {
     canvas: result.canvas,
     cancelled: result.cancelled,
-    modelUsed: `${style}/${method}`,
+    modelUsed: `${style}/${method}${ttaLevel > 0 ? ` (TTA${ttaLevel})` : ''}`,
   }
 }
 

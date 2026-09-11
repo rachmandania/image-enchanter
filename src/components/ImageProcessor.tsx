@@ -1,10 +1,10 @@
 'use client'
 
 import { useState, useRef, useCallback } from 'react'
-import { enchant, STYLES, type Style } from '@/lib/enchanter'
+import { enchant, STYLES, TILE_SIZES, TTA_LEVELS, type Style } from '@/lib/enchanter'
 import PixelPeep from './PixelPeep'
 
-type Factor = 2 | 4
+type Factor = 1 | 2 | 4
 type Status = 'idle' | 'working' | 'done' | 'error'
 
 const NOISE_OPTIONS = [
@@ -24,6 +24,9 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
   const [style, setStyle] = useState<Style>('art')
   const [denoise, setDenoise] = useState(-1)
   const [factor, setFactor] = useState<Factor>(2)
+  const [tta, setTta] = useState<0 | 2 | 4>(0)
+  const [tileSize, setTileSize] = useState(256)
+  const [tileShuffle, setTileShuffle] = useState(true)
   const [status, setStatus] = useState<Status>('idle')
   const [progress, setProgress] = useState(0)
   const [progressLabel, setProgressLabel] = useState('')
@@ -66,9 +69,15 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
     [flushProgress],
   )
 
-  const onModelLoad = useCallback((label: string) => {
-    setProgressLabel(label)
+  const onModelLoad = useCallback((label: string, loaded = 0, total = 0) => {
     setProgress(0)
+    if (total > 0) {
+      const pct = Math.min(99, Math.round((loaded / total) * 100))
+      setProgressLabel(`${label} ${pct}%`)
+      setProgress(pct)
+    } else {
+      setProgressLabel(label)
+    }
   }, [])
 
   const runUpscale = async () => {
@@ -102,6 +111,9 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
         style,
         denoise,
         scale: factor,
+        tileSize,
+        ttaLevel: tta,
+        tileShuffle,
         onProgress: onTileProgress,
         onModelLoad,
         shouldCancel: () => cancelRef.current,
@@ -171,11 +183,12 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
 
         {/* Scale */}
         <div className="flex items-center gap-1 bg-dark-800/50 rounded-lg p-1">
-          {([2, 4] as Factor[]).map((f) => (
+          {([1, 2, 4] as Factor[]).map((f) => (
             <button
               key={f}
               disabled={busy}
               onClick={() => setFactor(f)}
+              title={f === 1 ? 'Denoise only — keeps the same size' : `Upscale ${f}×`}
               className={`px-4 py-2 rounded-md text-sm font-medium transition-colors disabled:opacity-50 ${
                 factor === f ? 'bg-primary-500 text-white' : 'text-dark-300 hover:text-white'
               }`}
@@ -199,6 +212,53 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
             </option>
           ))}
         </select>
+
+        {/* TTA */}
+        <select
+          disabled={busy}
+          value={tta}
+          onChange={(e) => setTta(Number(e.target.value) as 0 | 2 | 4)}
+          title="Test-time augmentation: extra quality at a big speed cost"
+          className="bg-dark-800/50 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white disabled:opacity-50"
+        >
+          {TTA_LEVELS.map((t) => (
+            <option key={t.value} value={t.value}>
+              {t.value === 0 ? 'Quality: Fast' : `Quality: TTA${t.value}`}
+            </option>
+          ))}
+        </select>
+
+        {/* Tile size + shuffle (advanced) */}
+        <details className="w-full text-center">
+          <summary className="inline-block cursor-pointer text-dark-400 hover:text-dark-200 text-xs mb-2">
+            Advanced settings
+          </summary>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <select
+              disabled={busy}
+              value={tileSize}
+              onChange={(e) => setTileSize(Number(e.target.value))}
+              title="Larger tiles = faster overall but more memory. Smaller tiles for low-memory devices."
+              className="bg-dark-800/50 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white disabled:opacity-50"
+            >
+              {TILE_SIZES.map((t) => (
+                <option key={t} value={t}>
+                  Tile size: {t}
+                </option>
+              ))}
+            </select>
+            <label className="flex items-center gap-2 text-sm text-dark-300 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={tileShuffle}
+                disabled={busy}
+                onChange={(e) => setTileShuffle(e.target.checked)}
+                className="accent-primary-500 w-4 h-4"
+              />
+              Shuffle tiles
+            </label>
+          </div>
+        </details>
       </div>
 
       {/* Actions */}
