@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // onnxruntime-node + sharp ship native bindings — keep them out of the
+  // webpack bundle so the API route loads them directly from node_modules.
+  serverExternalPackages: ['onnxruntime-node', 'sharp'],
   // Cross-origin isolation unlocks multithreaded WASM for onnxruntime-web:
   // inference runs on multiple threads inside the proxy worker -> much faster tiles.
   async headers() {

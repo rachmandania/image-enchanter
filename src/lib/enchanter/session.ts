@@ -6,9 +6,25 @@
  * blob URLs — those fail whenever the proxy worker is on, because a worker cannot
  * fetch a blob URL created on the main thread, which broke session creation in
  * Firefox.) Raw bytes work in both proxy and main-thread modes.
+ *
+ * Session creation runs in the proxy worker first (keeps the page responsive
+ * during the heavy wasm compile) with a hard timeout, then falls back to the
+ * main thread if the worker path fails or stalls.
  */
 import * as ort from 'onnxruntime-web'
 import { modelCache } from './modelCache'
+
+// Once a proxy-worker session creation fails or times out, stop trying proxy
+// mode for every later model (helpers would each burn the timeout again).
+let proxyBroken = false
+
+function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} timed out after ${Math.round(ms / 1000)}s`)), ms)
+  })
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer))
+}
 
 export const onnxSession = {
   sessions: {} as Record<string, ort.InferenceSession>,
@@ -23,10 +39,41 @@ export const onnxSession = {
       try {
         const res = await modelCache.fetch(onnxPath)
         const bytes = await res.arrayBuffer()
-        this.sessions[onnxPath] = await ort.InferenceSession.create(bytes, {
-          logSeverityLevel: 3,
-          executionProviders: ep,
-        })
+        // Clone before the first attempt — a worker create may detach the
+        // buffer, and the main-thread fallback needs intact bytes.
+        const mainThreadBytes = bytes.slice(0)
+
+        if (!proxyBroken) {
+          // Proxy worker: session creation + inference run OFF the main thread,
+          // so the page (spinner, Cancel button) stays responsive during the
+          // heavy wasm compile. Raw ArrayBuffer input works in worker mode.
+          ort.env.wasm.proxy = true
+          try {
+            this.sessions[onnxPath] = await withTimeout(
+              ort.InferenceSession.create(bytes, {
+                logSeverityLevel: 3,
+                executionProviders: ep,
+              }),
+              90_000,
+              'AI engine setup',
+            )
+          } catch (proxyError) {
+            console.warn('[enchanter] proxy worker unavailable, using main thread', proxyError)
+            proxyBroken = true
+          }
+        }
+
+        if (!(onnxPath in this.sessions)) {
+          ort.env.wasm.proxy = false
+          this.sessions[onnxPath] = await withTimeout(
+            ort.InferenceSession.create(mainThreadBytes, {
+              logSeverityLevel: 3,
+              executionProviders: ep,
+            }),
+            150_000,
+            'AI engine setup',
+          )
+        }
       } catch (error) {
         console.error('[enchanter] failed to create session for', onnxPath, error)
         return null

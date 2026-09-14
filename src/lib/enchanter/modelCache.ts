@@ -52,8 +52,10 @@ export const modelCache = {
     }
     const res = await fetchWithProgress(url, onProgress)
     if (cache) {
-      // Fire-and-forget: persist for future visits
-      cache.put(url, res.clone()).catch(() => {})
+      // Await the write so the very next cache.match (e.g. when the session
+      // loads the same file right after prefetch) hits. A fire-and-forget put
+      // caused a silent full 19 MB re-download right after the bar finished.
+      await cache.put(url, res.clone()).catch(() => {})
     }
     return res
   },

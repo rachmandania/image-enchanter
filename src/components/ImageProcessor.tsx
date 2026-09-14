@@ -35,6 +35,7 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
   const [zoom, setZoom] = useState(2)
   const [inputDims, setInputDims] = useState<{ w: number; h: number } | null>(null)
   const [modelUsed, setModelUsed] = useState('')
+  const [useServer, setUseServer] = useState(false)
   const cancelRef = useRef(false)
   const resultUrlRef = useRef<string | null>(null)
   // Progress updates are buffered in a ref and flushed to state at most
@@ -48,7 +49,7 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
     lastFlush.current = Date.now()
     const { done, total } = progressBuf.current
     if (total > 0) {
-      setProgress(Math.round((done / total) * 100))
+      setProgress(Math.max(1, Math.round((done / total) * 100)))
       setProgressLabel(`Rendering tile ${done}/${total}`)
     }
   }, [])
@@ -70,13 +71,16 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
   )
 
   const onModelLoad = useCallback((label: string, loaded = 0, total = 0) => {
-    setProgress(0)
     if (total > 0) {
       const pct = Math.min(99, Math.round((loaded / total) * 100))
       setProgressLabel(`${label} ${pct}%`)
       setProgress(pct)
     } else {
+      // Stage change with no byte counts (e.g. "Preparing AI engine…"):
+      // show the label with a 0% bar instead of leaving the old 99% —
+      // a frozen 99% reads as "stuck", which is what you saw.
       setProgressLabel(label)
+      setProgress(0)
     }
   }, [])
 
@@ -85,18 +89,50 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
     cancelRef.current = false
     setStatus('working')
     setProgress(0)
-    setProgressLabel('Decoding image…')
+    setProgressLabel(useServer ? 'Uploading image…' : 'Decoding image…')
     setResultUrl(null)
     setErrorMessage('')
 
+    // Elapsed-time ticker: during silent-but-normal stages (wasm compile,
+    // first tile) the user sees time passing instead of a frozen bar.
+    const t0 = Date.now()
+    const tick = setInterval(() => {
+      setProgressLabel((prev) => (prev.includes('⏱') ? prev.replace(/⏱.*$/, `⏱ ${Math.round((Date.now() - t0) / 1000)}s`) : `${prev} ⏱ ${Math.round((Date.now() - t0) / 1000)}s`))
+    }, 1000)
+    const stopTick = () => clearInterval(tick)
+
     try {
-      // Decode to ImageData at native resolution
       const img = new Image()
       img.src = originalImage
       await img.decode()
       const w = img.naturalWidth
       const h = img.naturalHeight
       setInputDims({ w, h })
+
+      if (useServer) {
+        const blob = await (await fetch(originalImage)).blob()
+        const form = new FormData()
+        form.append('image', blob, 'input.png')
+        form.append('style', style)
+        form.append('scale', String(factor))
+        form.append('denoise', String(denoise))
+        const res = await fetch('/api/enchant', { method: 'POST', body: form })
+        if (!res.ok) {
+          let msg = `HTTP ${res.status}`
+          try { msg = ((await res.json()) as { error?: string }).error ?? msg } catch { /* keep */ }
+          throw new Error(msg)
+        }
+        const outBlob = await res.blob()
+        if (resultUrlRef.current) URL.revokeObjectURL(resultUrlRef.current)
+        const url = URL.createObjectURL(outBlob)
+        resultUrlRef.current = url
+        setResultUrl(url)
+        setModelUsed(`${style}/server · ${factor}x`)
+        stopTick()
+        setProgress(100)
+        setStatus('done')
+        return
+      }
 
       const canvas = document.createElement('canvas')
       canvas.width = w
@@ -120,6 +156,7 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
       })
 
       if (result.cancelled) {
+        stopTick()
         setStatus('idle')
         return
       }
@@ -133,13 +170,17 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
       resultUrlRef.current = url
       setResultUrl(url)
       setModelUsed(result.modelUsed)
+      stopTick()
       setProgress(100)
       setStatus('done')
     } catch (err) {
+      stopTick()
       console.error(err)
-      setErrorMessage(
-        `Upscaling failed: ${(err as Error).message}. Try the "Photo" style for photos, or a smaller image — browser memory is limited.`,
-      )
+      const raw = (err as Error).message || 'Unknown error'
+      const hint = useServer
+        ? ' You can also try the in-browser engine (uncheck "Process on server").'
+        : ' Your device may be out of memory — try a smaller image or tile size, or enable "Process on server".'
+      setErrorMessage(`Upscaling failed: ${raw}.${hint}`)
       setStatus('error')
     }
   }
@@ -228,7 +269,7 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
           ))}
         </select>
 
-        {/* Tile size + shuffle (advanced) */}
+        {/* Tile size + shuffle + server mode (advanced) */}
         <details className="w-full text-center">
           <summary className="inline-block cursor-pointer text-dark-400 hover:text-dark-200 text-xs mb-2">
             Advanced settings
@@ -256,6 +297,19 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
                 className="accent-primary-500 w-4 h-4"
               />
               Shuffle tiles
+            </label>
+            <label
+              className="flex items-center gap-2 text-sm text-dark-300 cursor-pointer select-none"
+              title="Runs the same AI engine on the server — much more reliable and often faster, but uploads your image"
+            >
+              <input
+                type="checkbox"
+                checked={useServer}
+                disabled={busy}
+                onChange={(e) => setUseServer(e.target.checked)}
+                className="accent-amber-400 w-4 h-4"
+              />
+              Process on server 🖥️
             </label>
           </div>
         </details>
@@ -349,7 +403,7 @@ export default function ImageProcessor({ originalImage, onReset }: ImageProcesso
           {inputDims && (
             <p className="text-center text-dark-300 text-sm mb-4 font-medium">
               {inputDims.w}×{inputDims.h} → {inputDims.w * factor}×{inputDims.h * factor} pixels
-              <span className="text-dark-500 font-normal"> · model: {modelUsed}</span>
+              <span className="text-dark-500 font-normal"> · engine: {modelUsed}</span>
             </p>
           )}
 

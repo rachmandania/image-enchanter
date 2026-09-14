@@ -3,7 +3,7 @@
  * Runs entirely client-side via onnxruntime-web. No uploads, no API keys.
  */
 import * as ort from 'onnxruntime-web'
-import { getConfig, type Style } from './config'
+import { getConfig, getHelperModelPath, type Style } from './config'
 import { onnxSession } from './session'
 import { runner } from './runner'
 import { modelCache } from './modelCache'
@@ -37,7 +37,10 @@ ort.env.wasm.wasmPaths = '/ort/'
 // — progress throttling + rAF yields already keep the UI responsive. Flip to
 // true to experiment; model bytes are passed as ArrayBuffer (session.ts), which
 // works in both modes.
-ort.env.wasm.proxy = false
+// Proxy worker (inference off the main thread) is now managed per-attempt in
+// session.ts: it enables proxy mode before each InferenceSession.create, with
+// a 90s timeout and a main-thread fallback — because ort.env.wasm.proxy must
+// be set BEFORE create() is called, a static value here can't do that.
 // Multithreaded WASM when the page is cross-origin isolated (COOP+COEP).
 try {
   if (crossOriginIsolated) {
@@ -82,12 +85,30 @@ export async function enchant(opts: EnchantOptions): Promise<EnchantResult> {
   const hasAlpha = checkAlphaChannel(imageData.data)
   const alphaConfig = hasAlpha ? getConfig('swin_unet', style, alphaMethod) : null
 
-  // Warm the model cache first so the UI can show download progress
+  // Preload every model this run needs, reporting each stage by name.
+  // (Previously only the main model was prefetched — the alpha model, seam
+  // filter and pad helpers loaded silently afterwards, which looked like a
+  // frozen 99% bar.)
+  const stage = (label: string) => onModelLoad?.(label, 0, 0)
   try {
-    onModelLoad?.('Downloading AI model…', 0, 0)
+    stage('Downloading AI model…')
     await modelCache.prefetch(config.path, (loaded, total) => {
       onModelLoad?.('Downloading AI model…', loaded, total)
     })
+    if (alphaConfig) {
+      stage('Downloading alpha model…')
+      await modelCache.prefetch(alphaConfig.path, (loaded, total) => {
+        onModelLoad?.('Downloading alpha model…', loaded, total)
+      })
+    }
+    stage('Preparing AI engine…')
+    await modelCache.prefetch(getHelperModelPath('create_seam_blending_filter'))
+    await modelCache.prefetch(
+      getHelperModelPath(config.padding === 'reflection' ? 'reflection_pad' : 'replication_pad'),
+    )
+    if (hasAlpha) {
+      await modelCache.prefetch(getHelperModelPath('alpha_border_padding'))
+    }
   } catch (e) {
     throw fail(e)
   }

@@ -5,7 +5,7 @@
 import * as ort from 'onnxruntime-web'
 import { getConfig, getHelperModelPath, type ModelConfig } from './config'
 import { onnxSession } from './session'
-import { SeamBlending } from './seam'
+import { SeamBlending, type RenderingParams } from './seam'
 
 export interface TiledRenderOptions {
   imageData: ImageData
@@ -45,7 +45,7 @@ export const runner = {
 
     let seamBlending: SeamBlending
     let seamBlendingAlpha: SeamBlending | null = null
-    let p
+    let p: RenderingParams
 
     if (hasAlpha) {
       // Split RGB + alpha — keep_alpha path
