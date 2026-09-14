@@ -34,9 +34,15 @@ export interface EnchantResult {
 ort.env.wasm.wasmPaths = '/ort/'
 // Run inference in onnxruntime's proxy worker so the main thread stays free
 // (scrolling, animations, React re-renders) — the fix for browser jank warnings.
+// Session creation has a main-thread fallback (see session.ts) for browsers
+// where the proxy worker is unavailable.
 ort.env.wasm.proxy = true
+// Let onnxruntime pick the thread count itself — forcing numThreads without
+// cross-origin isolation makes it fall back to 1 thread with a console error.
 try {
-  ort.env.wasm.numThreads = Math.min(navigator.hardwareConcurrency || 4, 8)
+  if (crossOriginIsolated) {
+    ort.env.wasm.numThreads = Math.min(navigator.hardwareConcurrency || 4, 8)
+  }
 } catch {
   // non-browser env during SSR
 }
@@ -65,32 +71,46 @@ export async function enchant(opts: EnchantOptions): Promise<EnchantResult> {
   const config = getConfig('swin_unet', style, method)
   if (!config) throw new Error(`Model not found: ${style}/${method}`)
 
+  // Wraps low-level failures with context for the UI error panel
+  const fail = (e: unknown): Error => {
+    const msg = e instanceof Error ? e.message : String(e)
+    return new Error(`Model init failed: ${msg}`)
+  }
+
   // alpha path uses the plain scale model for the alpha channel
   const alphaMethod = scale === 4 ? 'scale4x' : scale === 2 ? 'scale2x' : 'scale1x'
   const hasAlpha = checkAlphaChannel(imageData.data)
   const alphaConfig = hasAlpha ? getConfig('swin_unet', style, alphaMethod) : null
 
   // Warm the model cache first so the UI can show download progress
-  onModelLoad?.('Downloading AI model…', 0, 0)
-  await modelCache.prefetch(config.path, (loaded, total) => {
-    onModelLoad?.('Downloading AI model…', loaded, total)
-  })
+  try {
+    onModelLoad?.('Downloading AI model…', 0, 0)
+    await modelCache.prefetch(config.path, (loaded, total) => {
+      onModelLoad?.('Downloading AI model…', loaded, total)
+    })
+  } catch (e) {
+    throw fail(e)
+  }
 
-  const result = await runner.tiledRender({
-    imageData,
-    config,
-    alphaConfig: alphaConfig ?? null,
-    tileSize,
-    ttaLevel,
-    tileShuffle,
-    onProgress,
-    shouldCancel,
-  })
+  try {
+    const result = await runner.tiledRender({
+      imageData,
+      config,
+      alphaConfig: alphaConfig ?? null,
+      tileSize,
+      ttaLevel,
+      tileShuffle,
+      onProgress,
+      shouldCancel,
+    })
 
-  return {
-    canvas: result.canvas,
-    cancelled: result.cancelled,
-    modelUsed: `${style}/${method}${ttaLevel > 0 ? ` (TTA${ttaLevel})` : ''}`,
+    return {
+      canvas: result.canvas,
+      cancelled: result.cancelled,
+      modelUsed: `${style}/${method}${ttaLevel > 0 ? ` (TTA${ttaLevel})` : ''}`,
+    }
+  } catch (e) {
+    throw fail(e)
   }
 }
 

@@ -30,6 +30,7 @@ export const onnxSession = {
             executionProviders: ep,
           })
         } catch (proxyError) {
+          console.warn('[enchanter] session creation failed, retrying without worker proxy', proxyError)
           // Proxy worker unavailable (e.g. no Worker/COOP support) — retry on main thread.
           console.warn('[enchanter] proxy session failed, retrying without worker', proxyError)
           const proxyWasEnabled = ort.env.wasm.proxy === true

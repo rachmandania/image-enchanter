@@ -134,11 +134,15 @@ class SeamBlender {
     const [, H, W] = filter.dims
     this.fH = H
     this.fW = W
+    this.outputTileStep = 0 // set per-run by the caller
     this.pixels = new Float32Array(3 * bufferH * bufferW)
     this.weights = new Float32Array(3 * bufferH * bufferW)
     this.out = new Float32Array(filter.data.length)
   }
-  update(tileY, hI, wJ) {
+  /** tileI/tileJ are TILE INDICES — they are converted to buffer pixel offsets here. */
+  update(tileY, tileI, tileJ) {
+    const hI = tileI * this.outputTileStep
+    const wJ = tileJ * this.outputTileStep
     const fd = this.filter.data
     const { fH, fW } = this
     const HW = fH * fW
@@ -177,36 +181,49 @@ async function checkpoint(stateFile, state) {
     wBlocks: state.params.wBlocks,
     bufferH: state.params.bufferH,
     bufferW: state.params.bufferW,
-    outW: state.outRGBA.length ? null : null,
-    fH: state.rgbBlender.fH,
-    fW: state.rgbBlender.fW,
   })
   const handle = await fs.promises.open(stateFile, 'w')
   await handle.writeFile(metaJson + '\n')
   await handle.write(Buffer.from(state.rgbBlender.pixels.buffer))
   await handle.write(Buffer.from(state.rgbBlender.weights.buffer))
-  await handle.write(Buffer.from(state.outRGBA.buffer, state.outRGBA.byteOffset, state.outRGBA.byteLength))
+  if (state.alphaBlender) {
+    await handle.write(Buffer.from(state.alphaBlender.pixels.buffer))
+    await handle.write(Buffer.from(state.alphaBlender.weights.buffer))
+  }
   await handle.close()
 }
 
 async function loadCheckpoint(stateFile) {
   if (!fs.existsSync(stateFile)) return null
-  const handle = await fs.promises.open(stateFile, 'r')
-  const metaLine = (await handle.readFile({ length: 4096 })).toString().split('\n')[0]
-  const meta = JSON.parse(metaLine)
-  const headerLen = Buffer.byteLength(metaLine) + 1
-  const { size } = await handle.stat()
-  const pixelsLen = meta.bufferH * meta.bufferW * 3 * 4
-  const weightsLen = pixelsLen
-  const outLen = size - headerLen - pixelsLen - weightsLen
-  const pixels = new Float32Array(pixelsLen / 4)
-  const weights = new Float32Array(weightsLen / 4)
-  const outRGBA = Buffer.alloc(outLen)
-  await handle.read(pixels, 0, pixelsLen, headerLen)
-  await handle.read(weights, 0, weightsLen, headerLen + pixelsLen)
-  await handle.read(outRGBA, 0, outLen, headerLen + pixelsLen + weightsLen)
-  await handle.close()
-  return { meta, pixels, weights, outRGBA }
+  try {
+    const handle = await fs.promises.open(stateFile, 'r')
+    const metaLine = (await handle.readFile({ length: 4096 })).toString().split('\n')[0]
+    const meta = JSON.parse(metaLine)
+    const headerLen = Buffer.byteLength(metaLine) + 1
+    const plane = meta.bufferH * meta.bufferW * 3 * 4
+    const need = meta.hasAlpha ? plane * 4 : plane * 2
+    const { size } = await handle.stat()
+    if (size < headerLen + need) {
+      await handle.close()
+      return null
+    }
+    const pixels = new Float32Array(plane / 4)
+    const weights = new Float32Array(plane / 4)
+    await handle.read(pixels, 0, plane, headerLen)
+    await handle.read(weights, 0, plane, headerLen + plane)
+    let alphaPixels = null
+    let alphaWeights = null
+    if (meta.hasAlpha) {
+      alphaPixels = new Float32Array(plane / 4)
+      alphaWeights = new Float32Array(plane / 4)
+      await handle.read(alphaPixels, 0, plane, headerLen + plane * 2)
+      await handle.read(alphaWeights, 0, plane, headerLen + plane * 3)
+    }
+    await handle.close()
+    return { meta, pixels, weights, alphaPixels, alphaWeights }
+  } catch {
+    return null
+  }
 }
 
 // ---------- main pipeline ----------
@@ -242,29 +259,29 @@ async function upscale(inputFile, opts) {
 
   const filter = await blendingFilter(scale, offset, tileSize)
   const rgbBlender = new SeamBlender(params.bufferH, params.bufferW, filter)
+  rgbBlender.outputTileStep = params.outputTileStep
+  let alphaBlender = null
 
   const allBlocks = params.hBlocks * params.wBlocks
   log(`[tiles] ${params.hBlocks}x${params.wBlocks} = ${allBlocks} tiles`)
-
-  const outW = W * scale
-  const outH = H * scale
-  const outRGBA = Buffer.alloc(outW * outH * 4, 255)
 
   let done = 0
   let lastPct = -1
   // Resume from a previous checkpoint if one exists
   const saved = stateFile ? await loadCheckpoint(stateFile) : null
-  if (saved && saved.meta.method === method && saved.meta.scale === scale && saved.outRGBA.length === outRGBA.length) {
+  if (saved && saved.meta.method === method && saved.meta.scale === scale) {
     rgbBlender.pixels.set(saved.pixels)
     rgbBlender.weights.set(saved.weights)
-    outRGBA.set(saved.outRGBA)
+    if (saved.alphaPixels && alphaBlender) {
+      alphaBlender.pixels.set(saved.alphaPixels)
+      alphaBlender.weights.set(saved.alphaWeights)
+    }
     done = saved.meta.done
     log(`[resume] continuing from tile ${done}/${allBlocks}`)
   }
   // Alpha pass: reuse the same scale model on a grayscale-as-RGB tensor.
   // Fully opaque images skip it entirely (halves the work).
   const hasAlpha = !opaque
-  let alphaBlender = null
   let alphaPadded = null
   if (hasAlpha) {
     const a3 = new Float32Array(H * W * 3)
@@ -277,6 +294,7 @@ async function upscale(inputFile, opts) {
     let alphaT = new ort.Tensor('float32', a3, [1, 3, H, W])
     alphaT = await padTensor(alphaT, params.pad[0], params.pad[1], params.pad[2], params.pad[3], padding)
     alphaBlender = new SeamBlender(params.bufferH, params.bufferW, filter)
+    alphaBlender.outputTileStep = params.outputTileStep
     alphaPadded = alphaT
   }
   for (let hI = 0; hI < params.hBlocks; hI++) {
@@ -285,41 +303,17 @@ async function upscale(inputFile, opts) {
       if (done > hI * params.wBlocks + wJ) continue
       const i = hI * params.inputTileStep
       const j = wJ * params.inputTileStep
-      const ii = hI * params.outputTileStep
-      const jj = wJ * params.outputTileStep
 
       const tileX = crop(x, j, i, tileSize, tileSize)
       const out = await config.run({ x: tileX })
       const tileY = out.y
-
-      const rgbView = rgbBlender.update(tileY, hI, wJ)
-      const dims = tileY.dims
-      const tw = dims[3]
-      const th = dims[2]
-      for (let ty = 0; ty < th; ty++) {
-        const dstRow = (ii + ty) * outW + jj
-        for (let tx = 0; tx < tw; tx++) {
-          const src = ty * tw + tx
-          const dst = (dstRow + tx) * 4
-          outRGBA[dst] = Math.min(255, rgbView[src] * 255 + 0.49999)
-          outRGBA[dst + 1] = Math.min(255, rgbView[src + th * tw] * 255 + 0.49999)
-          outRGBA[dst + 2] = Math.min(255, rgbView[src + 2 * th * tw] * 255 + 0.49999)
-        }
-      }
+      rgbBlender.update(tileY, hI, wJ)
 
       if (alphaBlender && alphaPadded) {
         const tileA = crop(alphaPadded, j, i, tileSize, tileSize)
         const alphaModel = await session(modelPath(style, scale === 1 ? 'scale1x' : `scale${scale}x`))
         const aOut = await alphaModel.run({ x: tileA })
-        const aView = alphaBlender.update(aOut.y, hI, wJ)
-        for (let ty = 0; ty < th; ty++) {
-          const dstRow = (ii + ty) * outW + jj
-          for (let tx = 0; tx < tw; tx++) {
-            const src = ty * tw + tx
-            const a = (aView[src] + aView[src + th * tw] + aView[src + 2 * th * tw]) / 3
-            outRGBA[((dstRow + tx) * 4) + 3] = Math.min(255, a * 255 + 0.49999)
-          }
-        }
+        alphaBlender.update(aOut.y, hI, wJ)
       }
 
       done++
@@ -329,9 +323,41 @@ async function upscale(inputFile, opts) {
         log(`[progress] ${done}/${allBlocks} (${pct}%)`)
       }
       if (budgetSeconds > 0 && (Date.now() - t0) / 1000 > budgetSeconds - 20 && done < allBlocks) {
-        await checkpoint(stateFile, { done, params, rgbBlender, outRGBA, meta: { W, H, scale, style, method, tileSize } })
+        await checkpoint(stateFile, { done, params, rgbBlender, alphaBlender, meta: { W, H, scale, style, method, tileSize, hasAlpha } })
         log(`[checkpoint] ${done}/${allBlocks} saved to ${stateFile} — rerun the same command to continue`)
         process.exit(0)
+      }
+    }
+  }
+
+  // Final image = TOP-LEFT crop of the blend buffer. The web engine pastes
+  // tile (0,0) at buffer (0,0) and lets the canvas clip overflow, so content
+  // at buffer (0,0) == image (0,0); the buffer only extends past the image
+  // at the bottom/right.
+  const outW = W * scale
+  const outH = H * scale
+  const cropX = 0
+  const cropY = 0
+  if (process.env.DEBUG_TILES) {
+    const b = rgbBlender.pixels
+    let nz = 0
+    for (let q = 0; q < b.length; q++) if (Math.abs(b[q]) > 0.02) nz++
+    log(`[debug] buffer nz=${(nz / b.length).toFixed(3)} bufH ${params.bufferH} bufW ${params.bufferW} outW ${outW} outH ${outH}`)
+  }
+  const outRGBA = Buffer.alloc(outW * outH * 4, 255)
+  const bW = params.bufferW
+  for (let ty = 0; ty < outH; ty++) {
+    let dst = ty * outW * 4
+    let src = (cropY + ty) * bW + cropX
+    for (let tx = 0; tx < outW; tx++, dst += 4, src++) {
+      outRGBA[dst] = Math.min(255, rgbBlender.pixels[src] * 255 + 0.49999)
+      outRGBA[dst + 1] = Math.min(255, rgbBlender.pixels[src + bW * params.bufferH] * 255 + 0.49999)
+      outRGBA[dst + 2] = Math.min(255, rgbBlender.pixels[src + 2 * bW * params.bufferH] * 255 + 0.49999)
+      if (alphaBlender) {
+        outRGBA[dst + 3] = Math.min(255,
+          ((alphaBlender.pixels[src]
+            + alphaBlender.pixels[src + bW * params.bufferH]
+            + alphaBlender.pixels[src + 2 * bW * params.bufferH]) / 3) * 255 + 0.49999)
       }
     }
   }

@@ -9,7 +9,10 @@ const nextConfig = {
         source: '/:path*',
         headers: [
           { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
-          { key: 'Cross-Origin-Embedder-Policy', value: 'credentialless' },
+          // Firefox only supports `require-corp` (not `credentialless`). All our
+          // cross-origin model fetches are CORS-enabled, so require-corp works
+          // and gives real cross-origin isolation in both browsers.
+          { key: 'Cross-Origin-Embedder-Policy', value: 'require-corp' },
         ],
       },
     ]
