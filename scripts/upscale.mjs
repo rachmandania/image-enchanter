@@ -143,8 +143,6 @@ class SeamBlender {
     const { fH, fW } = this
     const HW = fH * fW
     const bHW = this.bufferH * this.bufferW
-    const fdStep = this.filterDimsStep ?? 0
-    void fdStep
     for (let c = 0; c < 3; c++) {
       const cb = c * bHW
       const cf = c * HW
@@ -168,9 +166,52 @@ class SeamBlender {
   }
 }
 
+// ---------- checkpoint/resume (lets long runs survive process timeouts) ----------
+async function checkpoint(stateFile, state) {
+  const dir = path.dirname(stateFile)
+  await fs.promises.mkdir(dir, { recursive: true })
+  const metaJson = JSON.stringify({
+    ...state.meta,
+    done: state.done,
+    hBlocks: state.params.hBlocks,
+    wBlocks: state.params.wBlocks,
+    bufferH: state.params.bufferH,
+    bufferW: state.params.bufferW,
+    outW: state.outRGBA.length ? null : null,
+    fH: state.rgbBlender.fH,
+    fW: state.rgbBlender.fW,
+  })
+  const handle = await fs.promises.open(stateFile, 'w')
+  await handle.writeFile(metaJson + '\n')
+  await handle.write(Buffer.from(state.rgbBlender.pixels.buffer))
+  await handle.write(Buffer.from(state.rgbBlender.weights.buffer))
+  await handle.write(Buffer.from(state.outRGBA.buffer, state.outRGBA.byteOffset, state.outRGBA.byteLength))
+  await handle.close()
+}
+
+async function loadCheckpoint(stateFile) {
+  if (!fs.existsSync(stateFile)) return null
+  const handle = await fs.promises.open(stateFile, 'r')
+  const metaLine = (await handle.readFile({ length: 4096 })).toString().split('\n')[0]
+  const meta = JSON.parse(metaLine)
+  const headerLen = Buffer.byteLength(metaLine) + 1
+  const { size } = await handle.stat()
+  const pixelsLen = meta.bufferH * meta.bufferW * 3 * 4
+  const weightsLen = pixelsLen
+  const outLen = size - headerLen - pixelsLen - weightsLen
+  const pixels = new Float32Array(pixelsLen / 4)
+  const weights = new Float32Array(weightsLen / 4)
+  const outRGBA = Buffer.alloc(outLen)
+  await handle.read(pixels, 0, pixelsLen, headerLen)
+  await handle.read(weights, 0, weightsLen, headerLen + pixelsLen)
+  await handle.read(outRGBA, 0, outLen, headerLen + pixelsLen + weightsLen)
+  await handle.close()
+  return { meta, pixels, weights, outRGBA }
+}
+
 // ---------- main pipeline ----------
 async function upscale(inputFile, opts) {
-  const { scale, denoise, style, tileSizeReq, out, quiet } = opts
+  const { scale, denoise, style, tileSizeReq, out, quiet, budgetSeconds, stateFile } = opts
   const t0 = Date.now()
   const log = (m) => !quiet && process.stderr.write(`${m}\n`)
 
@@ -183,9 +224,12 @@ async function upscale(inputFile, opts) {
   let tileSize = tileSizeReq
   while ((tileSize - 16) % 12 !== 0 || (tileSize - 16) % 16 !== 0) tileSize++
 
-  const raw = await sharp(inputFile).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+  const image = sharp(inputFile)
+  const stats = await image.stats()
+  const opaque = stats.channels.length < 4 || stats.channels[3].min === 255
+  const raw = await image.ensureAlpha().raw().toBuffer({ resolveWithObject: true })
   const { width: W, height: H } = raw.info
-  log(`[input] ${W}x${H} -> ${W * scale}x${H * scale}  (model: swin_unet/${style}/${method}, tile ${tileSize})`)
+  log(`[input] ${W}x${H} -> ${W * scale}x${H * scale}  (model: swin_unet/${style}/${method}, tile ${tileSize}${opaque ? ', opaque' : ''})`)
 
   const config = await session(modelPath(style, method))
   const offset = SWIN_OFFSET[scale]
@@ -198,14 +242,31 @@ async function upscale(inputFile, opts) {
 
   const filter = await blendingFilter(scale, offset, tileSize)
   const rgbBlender = new SeamBlender(params.bufferH, params.bufferW, filter)
-  // Alpha pass: reuse the same scale model on a grayscale-as-RGB tensor
-  const hasAlpha = raw.data.length === H * W * 4
+
+  const allBlocks = params.hBlocks * params.wBlocks
+  log(`[tiles] ${params.hBlocks}x${params.wBlocks} = ${allBlocks} tiles`)
+
+  const outW = W * scale
+  const outH = H * scale
+  const outRGBA = Buffer.alloc(outW * outH * 4, 255)
+
+  let done = 0
+  let lastPct = -1
+  // Resume from a previous checkpoint if one exists
+  const saved = stateFile ? await loadCheckpoint(stateFile) : null
+  if (saved && saved.meta.method === method && saved.meta.scale === scale && saved.outRGBA.length === outRGBA.length) {
+    rgbBlender.pixels.set(saved.pixels)
+    rgbBlender.weights.set(saved.weights)
+    outRGBA.set(saved.outRGBA)
+    done = saved.meta.done
+    log(`[resume] continuing from tile ${done}/${allBlocks}`)
+  }
+  // Alpha pass: reuse the same scale model on a grayscale-as-RGB tensor.
+  // Fully opaque images skip it entirely (halves the work).
+  const hasAlpha = !opaque
   let alphaBlender = null
   let alphaPadded = null
-  if (hasAlpha && (scale === 1 || true)) {
-    const alphaSession = await session(modelPath(style, scale === 1 ? 'scale1x' : `scale${scale}x`))
-    void alphaSession
-    // Build alpha3 tensor (alpha replicated to 3 channels)
+  if (hasAlpha) {
     const a3 = new Float32Array(H * W * 3)
     for (let i = 0, j = 0; i < raw.data.length; i += 4, j++) {
       const a = raw.data[i + 3] / 255
@@ -218,18 +279,10 @@ async function upscale(inputFile, opts) {
     alphaBlender = new SeamBlender(params.bufferH, params.bufferW, filter)
     alphaPadded = alphaT
   }
-
-  const allBlocks = params.hBlocks * params.wBlocks
-  log(`[tiles] ${params.hBlocks}x${params.wBlocks} = ${allBlocks} tiles`)
-
-  const outW = W * scale
-  const outH = H * scale
-  const outRGBA = Buffer.alloc(outW * outH * 4, 255)
-
-  let done = 0
-  let lastPct = -1
   for (let hI = 0; hI < params.hBlocks; hI++) {
     for (let wJ = 0; wJ < params.wBlocks; wJ++) {
+      // Skip tiles already blended in a previous checkpointed run
+      if (done > hI * params.wBlocks + wJ) continue
       const i = hI * params.inputTileStep
       const j = wJ * params.inputTileStep
       const ii = hI * params.outputTileStep
@@ -237,18 +290,9 @@ async function upscale(inputFile, opts) {
 
       const tileX = crop(x, j, i, tileSize, tileSize)
       const out = await config.run({ x: tileX })
-      let tileY = out.y
-
-      let tileAlphaY = null
-      if (alphaBlender && alphaPadded) {
-        const tileA = crop(alphaPadded, j, i, tileSize, tileSize)
-        const alphaModel = await session(modelPath(style, scale === 1 ? 'scale1x' : `scale${scale}x`))
-        const aOut = await alphaModel.run({ x: tileA })
-        tileAlphaY = aOut.y
-      }
+      const tileY = out.y
 
       const rgbView = rgbBlender.update(tileY, hI, wJ)
-      // CHW view slice -> pixels
       const dims = tileY.dims
       const tw = dims[3]
       const th = dims[2]
@@ -260,16 +304,14 @@ async function upscale(inputFile, opts) {
           outRGBA[dst] = Math.min(255, rgbView[src] * 255 + 0.49999)
           outRGBA[dst + 1] = Math.min(255, rgbView[src + th * tw] * 255 + 0.49999)
           outRGBA[dst + 2] = Math.min(255, rgbView[src + 2 * th * tw] * 255 + 0.49999)
-          if (tileAlphaY) {
-            const aData = alphaBlender.updateCache ?? null
-            void aData
-            outRGBA[dst + 3] = 255 // alpha written below in final pass
-          }
         }
       }
 
-      if (alphaBlender && tileAlphaY) {
-        const aView = alphaBlender.update(tileAlphaY, hI, wJ)
+      if (alphaBlender && alphaPadded) {
+        const tileA = crop(alphaPadded, j, i, tileSize, tileSize)
+        const alphaModel = await session(modelPath(style, scale === 1 ? 'scale1x' : `scale${scale}x`))
+        const aOut = await alphaModel.run({ x: tileA })
+        const aView = alphaBlender.update(aOut.y, hI, wJ)
         for (let ty = 0; ty < th; ty++) {
           const dstRow = (ii + ty) * outW + jj
           for (let tx = 0; tx < tw; tx++) {
@@ -285,6 +327,11 @@ async function upscale(inputFile, opts) {
       if (pct !== lastPct && pct % 5 === 0) {
         lastPct = pct
         log(`[progress] ${done}/${allBlocks} (${pct}%)`)
+      }
+      if (budgetSeconds > 0 && (Date.now() - t0) / 1000 > budgetSeconds - 20 && done < allBlocks) {
+        await checkpoint(stateFile, { done, params, rgbBlender, outRGBA, meta: { W, H, scale, style, method, tileSize } })
+        log(`[checkpoint] ${done}/${allBlocks} saved to ${stateFile} — rerun the same command to continue`)
+        process.exit(0)
       }
     }
   }
@@ -314,4 +361,7 @@ await upscale(inputFile, {
   tileSizeReq: Number(opt('tile', 256)),
   out: opt('out', inputFile.replace(/\.[^.]+$/, '') + `_x${opt('scale', 2)}.png`),
   quiet: args.includes('--quiet'),
+  budgetSeconds: Number(opt('budget', 0)),
+  stateFile: opt('state', inputFile + '.state'),
 })
+

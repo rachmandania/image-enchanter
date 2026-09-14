@@ -33,3 +33,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local AI workbench (models cache, batch inputs, checkpoint state)
+.model-cache/
+input/
+*.state
+/enhanced/
+/output/
+public/enhanced/
