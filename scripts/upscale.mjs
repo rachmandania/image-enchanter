@@ -60,11 +60,16 @@ async function session(modelRef) {
 
 // ---------- tensor helpers ----------
 function chwFromRGBA(rgba, width, height) {
+  // Composite over white (same as the web engine): transparent pixels would
+  // otherwise feed the model raw RGB garbage (usually black), producing dark
+  // halos around anti-aliased edges of images with transparency.
   const rgb = new Float32Array(height * width * 3)
   for (let i = 0, j = 0; i < rgba.length; i += 4, j++) {
-    rgb[j] = rgba[i] / 255
-    rgb[j + height * width] = rgba[i + 1] / 255
-    rgb[j + 2 * height * width] = rgba[i + 2] / 255
+    const a = rgba[i + 3] / 255
+    const ia = 1 - a
+    rgb[j] = a * (rgba[i] / 255) + ia
+    rgb[j + height * width] = a * (rgba[i + 1] / 255) + ia
+    rgb[j + 2 * height * width] = a * (rgba[i + 2] / 255) + ia
   }
   return new ort.Tensor('float32', rgb, [1, 3, height, width])
 }
@@ -265,22 +270,12 @@ async function upscale(inputFile, opts) {
   const allBlocks = params.hBlocks * params.wBlocks
   log(`[tiles] ${params.hBlocks}x${params.wBlocks} = ${allBlocks} tiles`)
 
-  let done = 0
-  let lastPct = -1
-  // Resume from a previous checkpoint if one exists
-  const saved = stateFile ? await loadCheckpoint(stateFile) : null
-  if (saved && saved.meta.method === method && saved.meta.scale === scale) {
-    rgbBlender.pixels.set(saved.pixels)
-    rgbBlender.weights.set(saved.weights)
-    if (saved.alphaPixels && alphaBlender) {
-      alphaBlender.pixels.set(saved.alphaPixels)
-      alphaBlender.weights.set(saved.alphaWeights)
-    }
-    done = saved.meta.done
-    log(`[resume] continuing from tile ${done}/${allBlocks}`)
-  }
   // Alpha pass: reuse the same scale model on a grayscale-as-RGB tensor.
   // Fully opaque images skip it entirely (halves the work).
+  // NOTE: alphaBlender must exist BEFORE the resume block below so saved
+  // alpha state is actually restored (it was previously created after, so
+  // every resumed run silently restarted alpha from zero -> mostly-
+  // transparent output with content only in the last-processed tiles).
   const hasAlpha = !opaque
   let alphaPadded = null
   if (hasAlpha) {
@@ -296,6 +291,23 @@ async function upscale(inputFile, opts) {
     alphaBlender = new SeamBlender(params.bufferH, params.bufferW, filter)
     alphaBlender.outputTileStep = params.outputTileStep
     alphaPadded = alphaT
+  }
+
+  let done = 0
+  let lastPct = -1
+  // Resume from a previous checkpoint if one exists
+  const saved = stateFile ? await loadCheckpoint(stateFile) : null
+  if (saved && saved.meta.method === method && saved.meta.scale === scale) {
+    rgbBlender.pixels.set(saved.pixels)
+    rgbBlender.weights.set(saved.weights)
+    if (saved.alphaPixels && alphaBlender) {
+      alphaBlender.pixels.set(saved.alphaPixels)
+      alphaBlender.weights.set(saved.alphaWeights)
+    } else if (saved.meta.hasAlpha && done > 0) {
+      throw new Error('checkpoint has alpha state but this run has no alpha blender — delete the state file and rerun')
+    }
+    done = saved.meta.done
+    log(`[resume] continuing from tile ${done}/${allBlocks}${saved.alphaPixels ? ' (alpha restored)' : ''}`)
   }
   for (let hI = 0; hI < params.hBlocks; hI++) {
     for (let wJ = 0; wJ < params.wBlocks; wJ++) {

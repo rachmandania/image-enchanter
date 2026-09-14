@@ -32,13 +32,13 @@ export interface EnchantResult {
 
 // Ensure onnxruntime finds its wasm files (copied to /public/ort)
 ort.env.wasm.wasmPaths = '/ort/'
-// Run inference in onnxruntime's proxy worker so the main thread stays free
-// (scrolling, animations, React re-renders) — the fix for browser jank warnings.
-// Session creation has a main-thread fallback (see session.ts) for browsers
-// where the proxy worker is unavailable.
-ort.env.wasm.proxy = true
-// Let onnxruntime pick the thread count itself — forcing numThreads without
-// cross-origin isolation makes it fall back to 1 thread with a console error.
+// Proxy worker (inference off the main thread) is OFF by default: combined with
+// blob-URL model loading it broke session creation in Firefox. Reliability first
+// — progress throttling + rAF yields already keep the UI responsive. Flip to
+// true to experiment; model bytes are passed as ArrayBuffer (session.ts), which
+// works in both modes.
+ort.env.wasm.proxy = false
+// Multithreaded WASM when the page is cross-origin isolated (COOP+COEP).
 try {
   if (crossOriginIsolated) {
     ort.env.wasm.numThreads = Math.min(navigator.hardwareConcurrency || 4, 8)

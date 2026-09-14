@@ -2,10 +2,10 @@
  * Session cache + image codecs for the Image Enchanter engine.
  * ONNX models load through the persistent browser cache (download once, use forever).
  *
- * Inference runs through onnxruntime's built-in proxy worker (env.wasm.proxy = true,
- * set in index.ts) so heavy WASM math never blocks the main thread — the UI stays
- * responsive while tiles render. If a browser can't provide the worker, we retry
- * with proxy disabled.
+ * Models are handed to onnxruntime as raw ArrayBuffers. (A previous version used
+ * blob URLs — those fail whenever the proxy worker is on, because a worker cannot
+ * fetch a blob URL created on the main thread, which broke session creation in
+ * Firefox.) Raw bytes work in both proxy and main-thread modes.
  */
 import * as ort from 'onnxruntime-web'
 import { modelCache } from './modelCache'
@@ -21,30 +21,12 @@ export const onnxSession = {
       const ep = this.backend === 'webgpu' ? ['wasm', 'webgpu'] : ['wasm']
 
       try {
-        // Route through the persistent cache: first run downloads (with UI progress
-        // handled by the caller via prefetch), later runs load from local storage.
-        const blobUrl = await modelCache.resolve(onnxPath)
-        try {
-          this.sessions[onnxPath] = await ort.InferenceSession.create(blobUrl, {
-            logSeverityLevel: 3,
-            executionProviders: ep,
-          })
-        } catch (proxyError) {
-          console.warn('[enchanter] session creation failed, retrying without worker proxy', proxyError)
-          // Proxy worker unavailable (e.g. no Worker/COOP support) — retry on main thread.
-          console.warn('[enchanter] proxy session failed, retrying without worker', proxyError)
-          const proxyWasEnabled = ort.env.wasm.proxy === true
-          if (proxyWasEnabled) ort.env.wasm.proxy = false
-          try {
-            this.sessions[onnxPath] = await ort.InferenceSession.create(blobUrl, {
-              logSeverityLevel: 3,
-              executionProviders: ['wasm'],
-            })
-          } finally {
-            if (proxyWasEnabled) ort.env.wasm.proxy = true
-          }
-        }
-        URL.revokeObjectURL(blobUrl)
+        const res = await modelCache.fetch(onnxPath)
+        const bytes = await res.arrayBuffer()
+        this.sessions[onnxPath] = await ort.InferenceSession.create(bytes, {
+          logSeverityLevel: 3,
+          executionProviders: ep,
+        })
       } catch (error) {
         console.error('[enchanter] failed to create session for', onnxPath, error)
         return null
