@@ -1,49 +1,51 @@
-# Image Enchanter
+DocClip
+=======
 
-AI-powered image upscaling and denoising that runs entirely in your browser. Free, private, no API keys.
+Clip loose scans into one ready-to-upload document — free, in your browser.
 
-![Next.js](https://img.shields.io/badge/Next.js-14-black) ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+Two scans of the same paper page (front/back of an ID, page 1 and 2 of a
+transcript) come out of the scanner as two files, but upload portals want one.
+DocClip merges them — side by side or stacked — into a single JPG, PNG, or
+PDF, and doubles as a quick image ⇄ JPG/PNG/PDF converter.
 
-## What it does
+What it does
+------------
 
-- Upload an image (drag & drop or click)
-- Pick a style (Artwork / Art Scan / Photo), denoise level (0–3), and scale (2x / 4x)
-- AI enhances resolution and removes noise on-device
-- Compare original vs enhanced at matched zoom, download the result as PNG
+| Mode         | What you get                                                    |
+| ------------ | --------------------------------------------------------------- |
+| Side by side | 2+ images joined left → right (two-sided pages)                 |
+| Stacked      | 2+ images joined top → bottom (long receipts, chat threads)     |
+| Convert only | File-type conversion without joining (JPG ⇄ PNG, → PDF)         |
 
-**Your images never leave your device.** There is no server-side processing, no upload, no tracking.
+- **Output formats:** JPG, PNG, or PDF. PDF offers two layouts: one joined
+  page, or one page per image — each page sized exactly to its scan.
+- **Layout controls** (advanced): cross-axis alignment, pixel gap, background
+  (white / black / transparent).
+- **Honest multi-image convert:** converting several images to PDF produces a
+  multi-page PDF in your chosen order; JPG/PNG can't hold pages, so the app
+  warns you instead of silently dropping files.
 
-## Tech stack
+Private by design
+-----------------
 
-| Layer | Technology |
-|-------|------------|
-| Framework | Next.js 14 (App Router, TypeScript) |
-| AI runtime | onnxruntime-web (WASM SIMD, multithreaded) |
-| Models | SwinUNet super-resolution ONNX models |
-| Styling | Tailwind CSS |
+Everything runs locally in your browser: joining uses the HTML canvas and
+PDFs are generated with jsPDF. No uploads, no accounts, no watermarks — there
+is no server code at all. Sensitive documents (IDs, transcripts) never leave
+your device, and the app works offline once loaded.
 
-## Getting started
+Getting started
+---------------
 
-```bash
-bun install   # or npm install
-bun run dev   # or npm run dev
-```
+    bun install
+    bun run dev      # http://localhost:3000
 
-Open http://localhost:3000.
+    bun run build    # production build
+    bun run start    # serve the production build
 
-## Notes
+Tech
+----
 
-- The AI model (~19 MB) downloads once, then is cached by the browser — later runs start instantly.
-- 4x uses a native 4x model. Large images take a few minutes on CPU; keep the tab open.
-- Everything runs client-side: models stream from a public CDN, helper models ship in `/public`.
-
-## Credits & licensing
-
-The tiled inference and seam-blending engine in `src/lib/enchanter/` is derived from
-[nunif](https://github.com/nagadomi/nunif) by nagadomi (MIT License). The pretrained ONNX
-models are also released by the nunif project under MIT. We are grateful for that project —
-attribution belongs here in the source, per the MIT license.
-
-## License
-
-MIT
+- Next.js 14 (App Router) + React 18 + TypeScript
+- Tailwind CSS, dark theme (`tailwind.config.ts`)
+- jsPDF for in-browser PDF generation
+- No backend, no API routes, no accounts, no third-party services
