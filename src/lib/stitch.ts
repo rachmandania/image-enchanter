@@ -140,6 +140,17 @@ export function renderJoin(
   return canvas
 }
 
+/**
+ * Release a canvas's backing memory immediately. Firefox frees canvas memory
+ * lazily, so big canvases can exhaust the browser's canvas budget and make
+ * the NEXT canvas allocation fail (null context / empty data URL) until a
+ * page refresh. Zeroing the dimensions frees it deterministically.
+ */
+function freeCanvas(canvas: HTMLCanvasElement) {
+  canvas.width = 0
+  canvas.height = 0
+}
+
 /** Draw one image (or canvas) onto a white background as a JPEG data URL. */
 function toJpegDataUrl(
   source: HTMLImageElement | HTMLCanvasElement
@@ -158,7 +169,36 @@ function toJpegDataUrl(
   ctx.fillStyle = '#ffffff'
   ctx.fillRect(0, 0, w, h)
   ctx.drawImage(source, 0, 0)
-  return canvas.toDataURL('image/jpeg', 0.92)
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.92)
+  freeCanvas(canvas)
+  return dataUrl
+}
+
+/** Small on-screen JPEG preview (data URL), capped size to keep memory low. */
+function makePreviewDataUrl(
+  source: HTMLImageElement | HTMLCanvasElement,
+  maxDim = 1200
+): string {
+  const w0 =
+    source instanceof HTMLCanvasElement ? source.width : source.naturalWidth
+  const h0 =
+    source instanceof HTMLCanvasElement
+      ? source.height
+      : source.naturalHeight
+  const scale = Math.min(1, maxDim / Math.max(w0, h0))
+  const w = Math.max(1, Math.round(w0 * scale))
+  const h = Math.max(1, Math.round(h0 * scale))
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Could not create a drawing canvas')
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, w, h)
+  ctx.drawImage(source, 0, 0, w, h)
+  const url = canvas.toDataURL('image/jpeg', 0.85)
+  freeCanvas(canvas)
+  return url
 }
 
 function canvasToBlob(
@@ -173,7 +213,7 @@ function canvasToBlob(
           ? resolve(blob)
           : reject(
               new Error(
-                'The result is too large for this browser. Try fewer images.'
+                'Your browser ran out of canvas memory. Refresh the page to free it up, then try again (fewer or smaller images also help).'
               )
             ),
       type,
@@ -198,8 +238,11 @@ function buildStitchedPdf(
 ): { doc: jsPDF; previewUrl: string } {
   const canvas = renderJoin(images, opts, true)
   const dataUrl = canvas.toDataURL('image/jpeg', 0.92)
-  const doc = makeDoc(canvas.width, canvas.height)
-  doc.addImage(dataUrl, 'JPEG', 0, 0, canvas.width, canvas.height)
+  const w = canvas.width
+  const h = canvas.height
+  freeCanvas(canvas)
+  const doc = makeDoc(w, h)
+  doc.addImage(dataUrl, 'JPEG', 0, 0, w, h)
   return { doc, previewUrl: dataUrl }
 }
 
@@ -220,7 +263,8 @@ function buildMultipagePdf(images: HTMLImageElement[]): {
     doc.addImage(toJpegDataUrl(img), 'JPEG', 0, 0, w, h)
   }
   if (!doc) throw new Error('No images to stitch')
-  return { doc, previewUrl: toJpegDataUrl(images[0]) }
+  // Small preview only — a full-res data URL here doubles peak memory.
+  return { doc, previewUrl: makePreviewDataUrl(images[0]) }
 }
 
 /** Convert a single image to the chosen raster format. */
@@ -240,12 +284,15 @@ async function convertSingle(
   }
   ctx.drawImage(img, 0, 0)
   const blob = await canvasToBlob(canvas, format)
+  const w = canvas.width
+  const h = canvas.height
+  freeCanvas(canvas)
   return {
     kind: 'image',
     blob,
     url: URL.createObjectURL(blob),
-    width: canvas.width,
-    height: canvas.height,
+    width: w,
+    height: h,
     ext: format,
   }
 }
@@ -277,29 +324,39 @@ export async function stitch(
   }
 
   if (opts.format === 'pdf') {
-    const { doc, previewUrl } =
-      opts.pdfLayout === 'multipage'
-        ? buildMultipagePdf(images)
-        : buildStitchedPdf(images, opts)
-    const blob = doc.output('blob')
-    return {
-      kind: 'pdf',
-      blob,
-      url: URL.createObjectURL(blob),
-      pages: opts.pdfLayout === 'multipage' ? images.length : 1,
-      previewUrl,
+    try {
+      const { doc, previewUrl } =
+        opts.pdfLayout === 'multipage'
+          ? buildMultipagePdf(images)
+          : buildStitchedPdf(images, opts)
+      const blob = doc.output('blob')
+      return {
+        kind: 'pdf',
+        blob,
+        url: URL.createObjectURL(blob),
+        pages: opts.pdfLayout === 'multipage' ? images.length : 1,
+        previewUrl,
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'unknown error'
+      throw new Error(
+        `PDF generation failed (${msg}). If this keeps happening, refresh the page to free up browser memory and try again.`
+      )
     }
   }
 
   // JPG / PNG join
   const canvas = renderJoin(images, opts, opts.format === 'jpg')
   const blob = await canvasToBlob(canvas, opts.format)
+  const w = canvas.width
+  const h = canvas.height
+  freeCanvas(canvas)
   return {
     kind: 'image',
     blob,
     url: URL.createObjectURL(blob),
-    width: canvas.width,
-    height: canvas.height,
+    width: w,
+    height: h,
     ext: opts.format,
   }
 }

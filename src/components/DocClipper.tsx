@@ -161,6 +161,13 @@ export default function DocClipper() {
     setProceeding(true)
     setError(null)
     try {
+      // Free the previous result's memory BEFORE building the next one —
+      // big canvases/blobs linger otherwise and can exhaust Firefox's
+      // canvas memory (the "PDF only works after a refresh" bug).
+      setResult((prev) => {
+        if (prev) URL.revokeObjectURL(prev.url)
+        return null
+      })
       const ordered = items
         .map((i) => loadedImages.current.get(i.id))
         .filter((img): img is HTMLImageElement => Boolean(img))
@@ -185,6 +192,20 @@ export default function DocClipper() {
     })
     setError(null)
   }, [])
+
+  // Full asset reset: drop the uploaded files, their decoded images and the
+  // previous result. Switching output format starts a brand-new job — this
+  // matches the fresh-page state, where every format is known to work.
+  const clearAssets = useCallback(() => {
+    setItems((prev) => {
+      for (const item of prev) {
+        URL.revokeObjectURL(item.url)
+        loadedImages.current.delete(item.id)
+      }
+      return []
+    })
+    reset()
+  }, [reset])
 
   // Convert mode ignores order — keep the hint accurate.
   useEffect(() => {
@@ -239,8 +260,8 @@ export default function DocClipper() {
             <button
               key={f.value}
               onClick={() => {
+                if (opts.format !== f.value) clearAssets()
                 setOpts((o) => ({ ...o, format: f.value }))
-                reset()
               }}
               className={`rounded-xl border px-3 py-2.5 text-sm font-medium transition-colors ${
                 opts.format === f.value
