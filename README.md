@@ -1,4 +1,4 @@
-DocClip
+ScanClip
 =======
 
 Clip loose scans into one ready-to-upload document — free, entirely in your
@@ -6,7 +6,7 @@ browser.
 
 Two scans of the same paper page (front/back of an ID, page 1 and 2 of a
 transcript) come out of the scanner as two files, but upload portals want one
-file. DocClip merges them — side by side or stacked — into a single JPG, PNG
+file. ScanClip merges them — side by side or stacked — into a single JPG, PNG
 or PDF, and doubles as a quick image converter (JPG ⇄ PNG ⇄ PDF).
 
 What it does

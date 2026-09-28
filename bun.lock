@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "docclip",
+      "name": "scanclip",
       "dependencies": {
         "jspdf": "^4.2.1",
         "next": "^14.2.0",
