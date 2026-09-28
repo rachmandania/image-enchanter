@@ -222,11 +222,29 @@ function canvasToBlob(
   })
 }
 
+/**
+ * PDF spec: max page size is 14,400 × 14,400 pt (200 × 200 in). Viewers clip
+ * anything larger, so a stitched strip wider than the cap would download cut
+ * even though the on-canvas render (and preview) was fine.
+ * jsPDF 'px' unit + px_scaling hotfix = 0.75 pt per px, so the cap in source
+ * pixels is 14400 / 0.75 = 19,200 px per side.
+ */
+const PDF_MAX_PT = 14400
+const PX_PER_PT = 72 / 96
+const PDF_MAX_PX = PDF_MAX_PT / PX_PER_PT
+
+/** Shrink page dims proportionally so both fit inside the PDF size cap. */
+function fitPageFormat(w: number, h: number): { w: number; h: number } {
+  const scale = Math.min(1, PDF_MAX_PX / w, PDF_MAX_PX / h)
+  return { w: Math.floor(w * scale), h: Math.floor(h * scale) }
+}
+
 function makeDoc(width: number, height: number): jsPDF {
+  const fit = fitPageFormat(width, height)
   return new jsPDF({
-    orientation: width > height ? 'landscape' : 'portrait',
+    orientation: fit.w > fit.h ? 'landscape' : 'portrait',
     unit: 'px',
-    format: [width, height],
+    format: [fit.w, fit.h],
     hotfixes: ['px_scaling'],
   })
 }
@@ -238,11 +256,10 @@ function buildStitchedPdf(
 ): { doc: jsPDF; previewUrl: string } {
   const canvas = renderJoin(images, opts, true)
   const dataUrl = canvas.toDataURL('image/jpeg', 0.92)
-  const w = canvas.width
-  const h = canvas.height
+  const fit = fitPageFormat(canvas.width, canvas.height)
   freeCanvas(canvas)
-  const doc = makeDoc(w, h)
-  doc.addImage(dataUrl, 'JPEG', 0, 0, w, h)
+  const doc = makeDoc(fit.w, fit.h)
+  doc.addImage(dataUrl, 'JPEG', 0, 0, fit.w, fit.h)
   return { doc, previewUrl: dataUrl }
 }
 
@@ -253,14 +270,13 @@ function buildMultipagePdf(images: HTMLImageElement[]): {
 } {
   let doc: jsPDF | null = null
   for (const img of images) {
-    const w = img.naturalWidth
-    const h = img.naturalHeight
+    const fit = fitPageFormat(img.naturalWidth, img.naturalHeight)
     if (!doc) {
-      doc = makeDoc(w, h)
+      doc = makeDoc(fit.w, fit.h)
     } else {
-      doc.addPage([w, h], w > h ? 'landscape' : 'portrait')
+      doc.addPage([fit.w, fit.h], fit.w > fit.h ? 'landscape' : 'portrait')
     }
-    doc.addImage(toJpegDataUrl(img), 'JPEG', 0, 0, w, h)
+    doc.addImage(toJpegDataUrl(img), 'JPEG', 0, 0, fit.w, fit.h)
   }
   if (!doc) throw new Error('No images to stitch')
   // Small preview only — a full-res data URL here doubles peak memory.
