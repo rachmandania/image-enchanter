@@ -560,6 +560,12 @@ export default function DocClipper() {
               ⬇ Download {result.kind === 'pdf' ? 'PDF' : result.ext.toUpperCase()}
             </button>
           </div>
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
+            ⚠️ Always open and double-check the downloaded file before you use
+            or share it — especially for large joins. If anything looks cut
+            off or out of order, redo the job with fewer images, or switch
+            the PDF layout and compare.
+          </div>
           <div className="rounded-xl overflow-auto max-h-[60vh] bg-dark-900 border border-dark-700/50">
             {result.kind === 'image' ? (
               // eslint-disable-next-line @next/next/no-img-element
