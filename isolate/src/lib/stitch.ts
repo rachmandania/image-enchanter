@@ -1,0 +1,392 @@
+import { jsPDF } from 'jspdf'
+
+export type Direction = 'horizontal' | 'vertical'
+export type StitchMode = Direction | 'convert'
+export type OutputFormat = 'jpg' | 'png' | 'pdf'
+export type PdfLayout = 'stitched' | 'multipage'
+export type Align = 'start' | 'center' | 'end'
+export type Background = 'white' | 'black' | 'transparent'
+
+export interface SourceImage {
+  id: string
+  file: File
+  url: string
+  width: number
+  height: number
+}
+
+export interface StitchOptions {
+  mode: StitchMode
+  format: OutputFormat
+  pdfLayout: PdfLayout
+  align: Align
+  spacing: number
+  background: Background
+}
+
+export type StitchResult =
+  | {
+      kind: 'image'
+      blob: Blob
+      url: string
+      width: number
+      height: number
+      ext: 'jpg' | 'png'
+    }
+  | {
+      kind: 'pdf'
+      blob: Blob
+      url: string
+      pages: number
+      previewUrl: string | null
+    }
+
+/** Load a File into an HTMLImageElement and report its natural size. */
+export function loadImage(
+  file: File
+): Promise<{ img: HTMLImageElement; url: string }> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => resolve({ img, url })
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error(`Could not read "${file.name}" as an image`))
+    }
+    img.src = url
+  })
+}
+
+export function computeCanvasSize(
+  images: Pick<HTMLImageElement, 'width' | 'height'>[],
+  direction: Direction,
+  spacing: number
+): { width: number; height: number } {
+  const gap = Math.max(0, Math.round(spacing))
+  const horizontal = direction === 'horizontal'
+  const mainTotal =
+    images.reduce(
+      (sum, img) => sum + (horizontal ? img.width : img.height),
+      0
+    ) +
+    gap * Math.max(0, images.length - 1)
+  const cross = Math.max(
+    ...images.map((img) => (horizontal ? img.height : img.width))
+  )
+  return {
+    width: horizontal ? mainTotal : cross,
+    height: horizontal ? cross : mainTotal,
+  }
+}
+
+const BG_COLORS: Record<Exclude<Background, 'transparent'>, string> = {
+  white: '#ffffff',
+  black: '#000000',
+}
+
+/**
+ * Draw all images onto one canvas.
+ * Horizontal: images left→right, canvas height = tallest image.
+ * Vertical: images top→bottom, canvas width = widest image.
+ * `flattenToWhite` forces a white background (JPEG/PDF have no alpha).
+ */
+export function renderJoin(
+  images: HTMLImageElement[],
+  opts: Pick<StitchOptions, 'mode' | 'align' | 'spacing' | 'background'>,
+  flattenToWhite: boolean
+): HTMLCanvasElement {
+  if (images.length === 0) throw new Error('No images to stitch')
+  const direction: Direction =
+    opts.mode === 'vertical' ? 'vertical' : 'horizontal'
+  const { width, height } = computeCanvasSize(images, direction, opts.spacing)
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Could not create a drawing canvas')
+
+  const bg =
+    flattenToWhite && opts.background === 'transparent'
+      ? BG_COLORS.white
+      : opts.background === 'transparent'
+        ? null
+        : BG_COLORS[opts.background]
+  if (bg) {
+    ctx.fillStyle = bg
+    ctx.fillRect(0, 0, width, height)
+  }
+
+  const horizontal = direction === 'horizontal'
+  const gap = Math.max(0, Math.round(opts.spacing))
+  const cross = horizontal ? height : width
+
+  let offset = 0
+  for (const img of images) {
+    const mainSize = horizontal ? img.width : img.height
+    const crossSize = horizontal ? img.height : img.width
+    const crossOffset =
+      opts.align === 'start'
+        ? 0
+        : opts.align === 'center'
+          ? (cross - crossSize) / 2
+          : cross - crossSize
+    const x = horizontal ? offset : crossOffset
+    const y = horizontal ? crossOffset : offset
+    ctx.drawImage(img, Math.round(x), Math.round(y))
+    offset += mainSize + gap
+  }
+
+  return canvas
+}
+
+/**
+ * Release a canvas's backing memory immediately. Firefox frees canvas memory
+ * lazily, so big canvases can exhaust the browser's canvas budget and make
+ * the NEXT canvas allocation fail (null context / empty data URL) until a
+ * page refresh. Zeroing the dimensions frees it deterministically.
+ */
+function freeCanvas(canvas: HTMLCanvasElement) {
+  canvas.width = 0
+  canvas.height = 0
+}
+
+/** Draw one image (or canvas) onto a white background as a JPEG data URL. */
+function toJpegDataUrl(
+  source: HTMLImageElement | HTMLCanvasElement
+): string {
+  const w =
+    source instanceof HTMLCanvasElement ? source.width : source.naturalWidth
+  const h =
+    source instanceof HTMLCanvasElement
+      ? source.height
+      : source.naturalHeight
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Could not create a drawing canvas')
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, w, h)
+  ctx.drawImage(source, 0, 0)
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.92)
+  freeCanvas(canvas)
+  return dataUrl
+}
+
+/** Small on-screen JPEG preview (data URL), capped size to keep memory low. */
+function makePreviewDataUrl(
+  source: HTMLImageElement | HTMLCanvasElement,
+  maxDim = 1200
+): string {
+  const w0 =
+    source instanceof HTMLCanvasElement ? source.width : source.naturalWidth
+  const h0 =
+    source instanceof HTMLCanvasElement
+      ? source.height
+      : source.naturalHeight
+  const scale = Math.min(1, maxDim / Math.max(w0, h0))
+  const w = Math.max(1, Math.round(w0 * scale))
+  const h = Math.max(1, Math.round(h0 * scale))
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Could not create a drawing canvas')
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, w, h)
+  ctx.drawImage(source, 0, 0, w, h)
+  const url = canvas.toDataURL('image/jpeg', 0.85)
+  freeCanvas(canvas)
+  return url
+}
+
+function canvasToBlob(
+  canvas: HTMLCanvasElement,
+  format: 'jpg' | 'png'
+): Promise<Blob> {
+  const type = format === 'png' ? 'image/png' : 'image/jpeg'
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) =>
+        blob
+          ? resolve(blob)
+          : reject(
+              new Error(
+                'Your browser ran out of canvas memory. Refresh the page to free it up, then try again (fewer or smaller images also help).'
+              )
+            ),
+      type,
+      0.92
+    )
+  })
+}
+
+/**
+ * PDF spec: max page size is 14,400 × 14,400 pt (200 × 200 in). Viewers clip
+ * anything larger, so a stitched strip wider than the cap would download cut
+ * even though the on-canvas render (and preview) was fine.
+ * jsPDF 'px' unit + px_scaling hotfix = 0.75 pt per px, so the cap in source
+ * pixels is 14400 / 0.75 = 19,200 px per side.
+ */
+const PDF_MAX_PT = 14400
+const PX_PER_PT = 72 / 96
+const PDF_MAX_PX = PDF_MAX_PT / PX_PER_PT
+
+/** Shrink page dims proportionally so both fit inside the PDF size cap. */
+function fitPageFormat(w: number, h: number): { w: number; h: number } {
+  const scale = Math.min(1, PDF_MAX_PX / w, PDF_MAX_PX / h)
+  return { w: Math.floor(w * scale), h: Math.floor(h * scale) }
+}
+
+function makeDoc(width: number, height: number): jsPDF {
+  const fit = fitPageFormat(width, height)
+  return new jsPDF({
+    orientation: fit.w > fit.h ? 'landscape' : 'portrait',
+    unit: 'px',
+    format: [fit.w, fit.h],
+    hotfixes: ['px_scaling'],
+  })
+}
+
+/** One PDF page containing the stitched image. */
+function buildStitchedPdf(
+  images: HTMLImageElement[],
+  opts: StitchOptions
+): { doc: jsPDF; previewUrl: string } {
+  const canvas = renderJoin(images, opts, true)
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.92)
+  const fit = fitPageFormat(canvas.width, canvas.height)
+  freeCanvas(canvas)
+  const doc = makeDoc(fit.w, fit.h)
+  doc.addImage(dataUrl, 'JPEG', 0, 0, fit.w, fit.h)
+  return { doc, previewUrl: dataUrl }
+}
+
+/** One PDF page per image, each page sized to that image. */
+function buildMultipagePdf(images: HTMLImageElement[]): {
+  doc: jsPDF
+  previewUrl: string
+} {
+  let doc: jsPDF | null = null
+  for (const img of images) {
+    const fit = fitPageFormat(img.naturalWidth, img.naturalHeight)
+    if (!doc) {
+      doc = makeDoc(fit.w, fit.h)
+    } else {
+      doc.addPage([fit.w, fit.h], fit.w > fit.h ? 'landscape' : 'portrait')
+    }
+    doc.addImage(toJpegDataUrl(img), 'JPEG', 0, 0, fit.w, fit.h)
+  }
+  if (!doc) throw new Error('No images to stitch')
+  // Small preview only — a full-res data URL here doubles peak memory.
+  return { doc, previewUrl: makePreviewDataUrl(images[0]) }
+}
+
+/** Convert a single image to the chosen raster format. */
+async function convertSingle(
+  img: HTMLImageElement,
+  format: 'jpg' | 'png'
+): Promise<StitchResult> {
+  const canvas = document.createElement('canvas')
+  canvas.width = img.naturalWidth
+  canvas.height = img.naturalHeight
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Could not create a drawing canvas')
+  if (format === 'jpg') {
+    // JPEG has no alpha channel — flatten onto white so it doesn't turn black.
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+  }
+  ctx.drawImage(img, 0, 0)
+  const blob = await canvasToBlob(canvas, format)
+  const w = canvas.width
+  const h = canvas.height
+  freeCanvas(canvas)
+  return {
+    kind: 'image',
+    blob,
+    url: URL.createObjectURL(blob),
+    width: w,
+    height: h,
+    ext: format,
+  }
+}
+
+/**
+ * Top-level engine: takes loaded images + options, returns a downloadable
+ * result (raster blob or PDF blob). Everything runs in the browser.
+ */
+export async function stitch(
+  images: HTMLImageElement[],
+  opts: StitchOptions
+): Promise<StitchResult> {
+  if (images.length === 0) throw new Error('Add at least one image')
+
+  if (opts.mode === 'convert') {
+    if (opts.format === 'pdf') {
+      // One page per image: 1 file → 1-page PDF, N files → N-page PDF.
+      const { doc, previewUrl } = buildMultipagePdf(images)
+      const blob = doc.output('blob')
+      return {
+        kind: 'pdf',
+        blob,
+        url: URL.createObjectURL(blob),
+        pages: images.length,
+        previewUrl,
+      }
+    }
+    return convertSingle(images[0], opts.format)
+  }
+
+  if (opts.format === 'pdf') {
+    try {
+      const { doc, previewUrl } =
+        opts.pdfLayout === 'multipage'
+          ? buildMultipagePdf(images)
+          : buildStitchedPdf(images, opts)
+      const blob = doc.output('blob')
+      return {
+        kind: 'pdf',
+        blob,
+        url: URL.createObjectURL(blob),
+        pages: opts.pdfLayout === 'multipage' ? images.length : 1,
+        previewUrl,
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'unknown error'
+      throw new Error(
+        `PDF generation failed (${msg}). If this keeps happening, refresh the page to free up browser memory and try again.`
+      )
+    }
+  }
+
+  // JPG / PNG join
+  const canvas = renderJoin(images, opts, opts.format === 'jpg')
+  const blob = await canvasToBlob(canvas, opts.format)
+  const w = canvas.width
+  const h = canvas.height
+  freeCanvas(canvas)
+  return {
+    kind: 'image',
+    blob,
+    url: URL.createObjectURL(blob),
+    width: w,
+    height: h,
+    ext: opts.format,
+  }
+}
+
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+}
+
+export function downloadResult(result: StitchResult, baseName: string) {
+  const ext = result.kind === 'pdf' ? 'pdf' : result.ext
+  const a = document.createElement('a')
+  a.href = result.url
+  a.download = `${baseName}.${ext}`
+  a.click()
+}
