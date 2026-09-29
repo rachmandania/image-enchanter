@@ -1,5 +1,5 @@
 ScanClip
-=======
+========
 
 Clip loose scans into one ready-to-upload document — free, entirely in your
 browser.
@@ -8,6 +8,12 @@ Two scans of the same paper page (front/back of an ID, page 1 and 2 of a
 transcript) come out of the scanner as two files, but upload portals want one
 file. ScanClip merges them — side by side or stacked — into a single JPG, PNG
 or PDF, and doubles as a quick image converter (JPG ⇄ PNG ⇄ PDF).
+
+⭐ **Fork it, use it, remix it.** ScanClip is 100% free and open source —
+no backend, no accounts, no tracking, nothing to pay for. If it solves a
+problem for you, fork the repo and make it yours: rename it, translate it,
+strip it down, build on it. The whole product is this folder; if you can run
+`bun install`, you can run ScanClip. PRs are welcome too.
 
 What it does
 ------------
@@ -52,6 +58,11 @@ Behavior details
 - **Page order matters** and is adjustable: reorder uploaded files with the
   arrow buttons; the current order (left→right, top→bottom, or page 1→N) is
   always labeled.
+- **PDF pages respect the spec's 14,400 pt (200 in) size cap.** A page that
+  would be larger is scaled down proportionally before the PDF is written —
+  the embedded image keeps full resolution, so nothing is lost. Without this,
+  PDF viewers silently clip oversized pages and a 6-scan-wide strip downloads
+  cut in half.
 
 Private by design
 -----------------
@@ -61,24 +72,30 @@ are generated with jsPDF in the page. There is **no server code at all**: no
 uploads, no accounts, no watermarks, no tracking. Sensitive documents (IDs,
 transcripts) never leave your device, and the app works offline once loaded.
 
-Getting started
----------------
+Run your own copy
+-----------------
 
     bun install
     bun run dev      # http://localhost:3000
 
     bun run build    # production build
-    bun run start    # serve the production build
+    bun start        # serve the production build
+
+Forked it and want to ship it? It deploys anywhere static-ish Next.js runs —
+Vercel, Netlify, Cloudflare, your own box. No environment variables, no
+database, no secrets. The deploy is just `bun install && bun run build`.
 
 Project status
 --------------
 
-Working and manually verified: horizontal JPG join (two transcript scans →
-one image) and PDF output. Recently hardened: canvases are freed immediately
-after encoding, previous results are released before a new run, PDF previews
-are downsampled thumbnails, and format switches reset the job — together
-these fix "PDF only works after a page refresh" in Firefox; back-to-back
-join→PDF across formats is the next thing to re-verify.
+Working and verified on Firefox (desktop + Android):
+
+- Horizontal JPG join (two transcript scans → one image)
+- PDF output for a 6-image side-by-side join (PDF page-size cap fix verified
+  on-device after the "last image cut in half" bug report)
+- Back-to-back runs no longer need a page refresh: canvases are freed
+  immediately after encoding, previous results are released before a new
+  run, and PDF previews are downsampled thumbnails.
 
 Not yet exercised end-to-end: PNG output, Stacked mode, advanced options
 (alignment/gap/background), single-image convert. All of these run through
@@ -101,6 +118,11 @@ Tech
 - Tailwind CSS, dark theme (`tailwind.config.ts`)
 - jsPDF for in-browser PDF generation
 - No backend, no API routes, no accounts, no third-party services
+
+License
+-------
+
+MIT — free to use, fork, modify, and ship. See [LICENSE](LICENSE).
 
 Credits
 -------
