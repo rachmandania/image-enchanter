@@ -78,8 +78,8 @@ Run your own copy
     bun install
     bun run dev      # http://localhost:3000
 
-    bun run build    # production build
-    bun start        # serve the production build
+    bun run build    # static production build → out/ and dist/
+    npx serve dist   # serve the production build locally (static export)
 
 Forked it and want to ship it? It deploys anywhere static-ish Next.js runs —
 Vercel, Netlify, Cloudflare, your own box. No environment variables, no
