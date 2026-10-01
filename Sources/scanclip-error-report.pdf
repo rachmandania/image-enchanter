@@ -1,0 +1,667 @@
+%PDF-1.3
+%ºß¬à
+3 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 4 0 R
+>>
+endobj
+4 0 obj
+<<
+/Length 7016
+>>
+stream
+0.200025 w
+0 G
+BT
+/F2 22 Tf
+25.2999999999999972 TL
+0.059 0.09 0.165 rg
+56. 777.8899999999999864 Td
+(ScanClip — Error Report & Binding Explanation) Tj
+ET
+BT
+/F1 9 Tf
+10.3499999999999996 TL
+0.392 0.455 0.545 rg
+56. 763.8899999999999864 Td
+(rachmandania/image-enchanter  •  Generated October 1, 2026  •  All checks measured, not assumed) Tj
+ET
+BT
+/F2 14 Tf
+16.0999999999999979 TL
+0.059 0.09 0.165 rg
+56. 741.8899999999999864 Td
+(1. Errors encountered) Tj
+ET
+BT
+/F2 11 Tf
+12.6499999999999986 TL
+0.059 0.09 0.165 rg
+56. 714.9900000000000091 Td
+(Error 1 — gh CLI JSON field \(minor, agent mistake\)) Tj
+ET
+0.95 0.96 0.98 rg
+50. 705.1399999999999864 495.2799999999999727 -14. re
+f
+BT
+/F5 9 Tf
+10.3499999999999996 TL
+0.059 0.09 0.165 rg
+56. 696.1399999999999864 Td
+(Unknown JSON field: "full_name") Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 675.1399999999999864 Td
+(Cause: queried a field name that gh's JSON output does not offer; the valid field is nameWithOwner. Impact:) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 661.6399999999999864 Td
+(none, just a retry.) Tj
+ET
+BT
+/F2 11 Tf
+12.6499999999999986 TL
+0.059 0.09 0.165 rg
+56. 638.1399999999999864 Td
+(Error 2 — Freebuff credential injection failure \(the important one\)) Tj
+ET
+0.95 0.96 0.98 rg
+50. 628.2899999999999636 495.2799999999999727 -14. re
+f
+BT
+/F5 9 Tf
+10.3499999999999996 TL
+0.059 0.09 0.165 rg
+56. 619.2899999999999636 Td
+(Could not configure the GitHub remote in the Daytona sandbox.) Tj
+ET
+0.95 0.96 0.98 rg
+50. 613.2899999999999636 495.2799999999999727 -14. re
+f
+BT
+/F5 9 Tf
+10.3499999999999996 TL
+0.059 0.09 0.165 rg
+56. 604.2899999999999636 Td
+(Retry the run; if it persists, inspect Daytona command execution for this sandbox.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.2 0.255 0.333 rg
+56. 583.2899999999999636 Td
+(Reproduced deterministically across three renames \(docclip, scanclip, Scan-Clip\). Not a fluke.) Tj
+ET
+BT
+/F2 14 Tf
+16.0999999999999979 TL
+0.059 0.09 0.165 rg
+56. 559.7899999999999636 Td
+(Test matrix \(run one command at a time\)) Tj
+ET
+BT
+/F5 9 Tf
+10.3499999999999996 TL
+0.086 0.396 0.204 rg
+56. 532.8899999999999864 Td
+(  fetch/push via old URL while repo was Scan-Clip  OK) Tj
+ET
+BT
+/F5 9 Tf
+10.3499999999999996 TL
+0.725 0.11 0.11 rg
+56. 519.8899999999999864 Td
+(  fetch via new Scan-Clip URL \(origin retargeted\)  FAILED x2) Tj
+ET
+BT
+/F5 9 Tf
+10.3499999999999996 TL
+0.086 0.396 0.204 rg
+56. 506.8899999999999864 Td
+(  fetch/push via old URL after restoring it        OK) Tj
+ET
+BT
+/F5 9 Tf
+10.3499999999999996 TL
+0.086 0.396 0.204 rg
+56. 493.8899999999999864 Td
+(  fetch/push after renaming repo back              OK \(up-to-date\)) Tj
+ET
+BT
+/F2 14 Tf
+16.0999999999999979 TL
+0.059 0.09 0.165 rg
+56. 470.8899999999999864 Td
+(2. Root cause) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 443.9900000000000091 Td
+(Freebuff's git credential injector is bound to the repository name the workspace was connected under) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 430.4900000000000091 Td
+(\(image-enchanter\). When the remote URL contains a name that no longer matches the binding, Freebuff) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 416.9900000000000091 Td
+(cannot mint its short-lived, repository-scoped GitHub App credential, and the git operation is refused before it) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 403.4900000000000091 Td
+(reaches GitHub.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 383.9900000000000091 Td
+(Why the old URL still worked: GitHub permanently redirects renamed repositories. The injector recognized) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 370.4900000000000091 Td
+(the old URL, minted the credential, and GitHub silently redirected the operation \(even pushes\) to Scan-Clip.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 356.9900000000000091 Td
+(Everything looked healthy until origin was pointed at the new name.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 337.4900000000000091 Td
+(Why gh commands always worked: the GitHub API does not traverse the git remote/credential-binding path. It) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 323.9900000000000091 Td
+(needs only a token with access, and any repo path can be addressed directly.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 304.4900000000000091 Td
+(Why the new URL failed: the injector looks up its binding table, finds image-enchanter, sees Scan-Clip in the) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 290.9900000000000091 Td
+(URL, finds no match, and refuses to configure the remote. No credential is persisted anywhere to fall back on) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 277.4900000000000091 Td
+(\(by design\).) Tj
+ET
+BT
+/F2 14 Tf
+16.0999999999999979 TL
+0.059 0.09 0.165 rg
+56. 253.9900000000000091 Td
+(3. How the Freebuff binding works) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 227.0900000000000318 Td
+(•  On connect, Freebuff registers a workspace-scoped binding: this workspace <->) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 213.5900000000000318 Td
+(rachmandania/image-enchanter.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 196.0900000000000318 Td
+(•  On every git/gh command, Freebuff mints a short-lived, repository-scoped GitHub App credential, valid only) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 182.5900000000000318 Td
+(for that operation. It is deliberately NOT stored in GITHUB_TOKEN, ~/.git-credentials, SSH keys, or the origin) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 169.0900000000000318 Td
+(URL. Its absence from a general environment inspection is expected, not a bug.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 151.5900000000000318 Td
+(•  The injector matches the repository by name. A GitHub-side rename makes the remote URL's name) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 138.0900000000000318 Td
+(mismatch the binding, so credential minting fails. Code, commits, and branches are unaffected - it is purely) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 124.5900000000000318 Td
+(the credential-matching step.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 107.0900000000000318 Td
+(•  The two supported fixes: \(a\) rename the repo back to the bound name \(what was done - instant, zero risk\),) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 93.5900000000000318 Td
+(or \(b\) reconnect the repository in the Freebuff dashboard so the binding re-registers under the new name,) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 80.0900000000000318 Td
+(then rename on GitHub. Manual URL rewrites cannot fix it because the credential is minted server-side, not) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 66.5900000000000318 Td
+(from local config.) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.58 0.639 0.722 rg
+56. 24. Td
+(ScanClip - free, private, 100% in-browser scan joining \(scanclip.freebuff.app\)) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.58 0.639 0.722 rg
+498.6399999999999864 24. Td
+(Page 1 of 2) Tj
+ET
+endstream
+endobj
+5 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 6 0 R
+>>
+endobj
+6 0 obj
+<<
+/Length 2208
+>>
+stream
+0.200025 w
+0 G
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 777.8899999999999864 Td
+(•  Policy: no PATs, no SSH keys, no credentials in remotes or env files. When a rename breaks the binding,) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 764.3899999999999864 Td
+(reconnecting in the dashboard is the legitimate cure - not a credential workaround.) Tj
+ET
+BT
+/F2 14 Tf
+16.0999999999999979 TL
+0.059 0.09 0.165 rg
+56. 746.8899999999999864 Td
+(4. Current state \(all verified green\)) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 719.9900000000000091 Td
+(•  Repo: rachmandania/image-enchanter - PUBLIC, MIT license, default branch main.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 702.4900000000000091 Td
+(•  origin points at that URL; git fetch works; git push reports 'Everything up-to-date'.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 684.9900000000000091 Td
+(•  All ScanClip branding, commits, and code untouched - only the URL kept the old name.) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 667.4900000000000091 Td
+(•  The name 'Scan-Clip' is free on the account; to reclaim it, reconnect the repo in the Freebuff dashboard) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 653.9900000000000091 Td
+(first, then rename.) Tj
+ET
+BT
+/F2 14 Tf
+16.0999999999999979 TL
+0.059 0.09 0.165 rg
+56. 636.4900000000000091 Td
+(5. Unrelated pending issue \(different subsystem\)) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 609.5899999999999181 Td
+(The deployment issue \(kn78wnwz stuck at 'Preparing source upload', zombie 'cancelling' state blocking) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 596.0899999999999181 Td
+(retries\) lives in the hosting build pipeline, not in git credentials. The rename never touched it. Next step when) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.122 0.161 0.216 rg
+56. 582.5899999999999181 Td
+(desired: freebuff-deploy status, then freebuff-deploy start if the zombie has cleared.) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.58 0.639 0.722 rg
+56. 24. Td
+(ScanClip - free, private, 100% in-browser scan joining \(scanclip.freebuff.app\)) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.58 0.639 0.722 rg
+498.6399999999999864 24. Td
+(Page 2 of 2) Tj
+ET
+endstream
+endobj
+1 0 obj
+<</Type /Pages
+/Kids [3 0 R 5 0 R ]
+/Count 2
+>>
+endobj
+7 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+8 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+9 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+10 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+11 0 obj
+<<
+/Type /Font
+/BaseFont /Courier
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+12 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+13 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+14 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+15 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Roman
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+16 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+17 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Italic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+18 0 obj
+<<
+/Type /Font
+/BaseFont /Times-BoldItalic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+19 0 obj
+<<
+/Type /Font
+/BaseFont /ZapfDingbats
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+20 0 obj
+<<
+/Type /Font
+/BaseFont /Symbol
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+2 0 obj
+<<
+/ProcSet [/PDF /Text /ImageB /ImageC /ImageI]
+/Font <<
+/F1 7 0 R
+/F2 8 0 R
+/F3 9 0 R
+/F4 10 0 R
+/F5 11 0 R
+/F6 12 0 R
+/F7 13 0 R
+/F8 14 0 R
+/F9 15 0 R
+/F10 16 0 R
+/F11 17 0 R
+/F12 18 0 R
+/F13 19 0 R
+/F14 20 0 R
+>>
+/XObject <<
+>>
+>>
+endobj
+21 0 obj
+<<
+/Producer (jsPDF 4.2.1)
+/CreationDate (D:20261001102811-00'00')
+>>
+endobj
+22 0 obj
+<<
+/Type /Catalog
+/Pages 1 0 R
+/OpenAction [3 0 R /FitH null]
+/PageLayout /OneColumn
+>>
+endobj
+xref
+0 23
+0000000000 65535 f 
+0000009617 00000 n 
+0000011442 00000 n 
+0000000015 00000 n 
+0000000152 00000 n 
+0000007220 00000 n 
+0000007357 00000 n 
+0000009680 00000 n 
+0000009805 00000 n 
+0000009935 00000 n 
+0000010068 00000 n 
+0000010206 00000 n 
+0000010330 00000 n 
+0000010459 00000 n 
+0000010591 00000 n 
+0000010727 00000 n 
+0000010855 00000 n 
+0000010982 00000 n 
+0000011111 00000 n 
+0000011244 00000 n 
+0000011346 00000 n 
+0000011692 00000 n 
+0000011778 00000 n 
+trailer
+<<
+/Size 23
+/Root 22 0 R
+/Info 21 0 R
+/ID [ <39F07D13A9DA96B3EF2716EDB23DE19F> <39F07D13A9DA96B3EF2716EDB23DE19F> ]
+>>
+startxref
+11882
+%%EOF
