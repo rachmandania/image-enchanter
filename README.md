@@ -85,6 +85,10 @@ Forked it and want to ship it? It deploys anywhere static-ish Next.js runs —
 Vercel, Netlify, Cloudflare, your own box. No environment variables, no
 database, no secrets. The deploy is just `bun install && bun run build`.
 
+The live copy is a static export on Vercel:
+<https://image-enchanter.vercel.app> (the URL carries the repository name;
+the app itself is ScanClip).
+
 Project status
 --------------
 
