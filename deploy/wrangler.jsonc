@@ -1,0 +1,11 @@
+{
+  // Local-only config used to verify the Worker + static assets in workerd
+  // (wrangler dev) before deploying through the Sites manifest.
+  "name": "scanclip-preview",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-10",
+  "assets": {
+    "directory": "../dist",
+    "binding": "ASSETS"
+  }
+}
